@@ -13,7 +13,7 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
-const unsigned int max_win_size = 1000;
+const unsigned int max_win_size = 700;
 
 struct trajectory_t
 {
