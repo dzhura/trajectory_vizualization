@@ -13,8 +13,6 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
-const unsigned int max_win_size = 700;
-
 struct trajectory_t
 {
         trajectory_t() { } 
@@ -104,30 +102,43 @@ struct mouse_callback_input_t
 	const voxel_map_t & _trajectory_id;
 	const std::vector<trajectory_t> & _trajectories;
 	const std::vector<partition_t> & _partitions;
-	float _scale;
+	const std::vector<cv::Scalar> & _color_scheme;
+	cv::Mat _plot_xy;
+	cv::Mat _plot_xt;
+	cv::Mat _plot_ty;
+	std::string _plot_xy_name;
+	std::string _plot_xt_name;
+	std::string _plot_ty_name;
+	unsigned int _num_drawn_trajectories;
 
 	mouse_callback_input_t( const unsigned int & current_frame_number, const voxel_map_t & trajectory_id,
-	       			const std::vector<trajectory_t> & trajectories,
-			       	const std::vector<partition_t> & partitions, float scale):
+	       			const std::vector<trajectory_t> & trajectories, const std::vector<partition_t> & partitions,
+				const std::vector<cv::Scalar> color_scheme):
 			       	_current_frame_number(current_frame_number), _trajectory_id(trajectory_id),
-			       	_trajectories(trajectories),
-				_partitions(partitions), _scale(scale) { }
+			       	_trajectories(trajectories), _partitions(partitions),
+				_color_scheme(color_scheme), _num_drawn_trajectories(0) { }
 }; // mouse_callback_input_t
 
 static void show_graphs( int event, int x, int y, int dummy, void * args);
 
-void draw_xy_projection( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, float scale);
-void draw_tx_projection( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, float scale);
-void draw_ty_projection( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, float scale);
+void draw_xy_projection( const trajectory_t & tr, cv::Mat & out, const cv::Scalar & color);
+void draw_xt_projection( const trajectory_t & tr, cv::Mat & out, const cv::Scalar & color);
+void draw_ty_projection( const trajectory_t & tr, cv::Mat & out, const cv::Scalar & color);
 
-void draw_2D_axies(cv::Mat & region, const cv::Size & border);
+void draw_xy_partition( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, const cv::Scalar & color);
+void draw_xt_partition( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, const cv::Scalar & color);
+void draw_ty_partition( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, const cv::Scalar & color);
 
-void draw_trajectories(const std::vector<trajectory_t> & trajectories, std::vector<cv::Mat> & video, voxel_map_t & pos_2_trajectory);
+void draw_2D_axies(cv::Mat & region, const cv::Size & border, const std::string & horiz_label, const std::string & vert_label, const cv::Scalar & color);
+
+void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<cv::Scalar> & color_scheme, std::vector<cv::Mat> & video, voxel_map_t & pos_2_trajectory);
 
 int main(int argc, char * argv[]) 
 {
-	if(argc!=1+4) {
-		std::cout << "Usage: " << argv[0] << " <path_to_trajectories> <path_to_partition> <path_to_frames> <graph_scale>" << std::endl;
+	const cv::Size boundary_size(5,5); // distance btw end of image to drawing area
+
+	if(argc!=1+3) {
+		std::cout << "Usage: " << argv[0] << " <path_to_trajectories> <path_to_partition> <path_to_frames>" << std::endl;
 		std::cout << "\t <scale_factor> should be in [1...100]" << std::endl;
 		return 1;
 	}
@@ -150,15 +161,8 @@ int main(int argc, char * argv[])
 		return 1;
 	}
 
-	float graph_scale = atof(argv[4]);
-	if( graph_scale < 1 || 100 < graph_scale ) {
-		std::cout << "Graph scale should be in [1...100], but it is " << graph_scale << std::endl;
-		return 1;
-	}
-
-
 	//// read input
-	// trajectories
+	// read trajectories
 	std::ifstream in_trajectoires(path_to_trajectories);
 	if( !in_trajectoires.is_open() ) {
 		std::cout << "Canot " << path_to_trajectories << std::endl;
@@ -184,7 +188,7 @@ int main(int argc, char * argv[])
 	}
 	in_trajectoires.close();
 
-	// partition of trajectories
+	// read partition of trajectories
 	std::ifstream in_partition(path_to_partition);
 	if( !in_partition.is_open() ) {
 		std::cout << "Canot " << path_to_partition << std::endl;
@@ -207,7 +211,7 @@ int main(int argc, char * argv[])
 	}
 	in_partition.close();
 
-	// frames
+	// read frames
 	std::string root_dir = path_to_frames.substr(0, path_to_frames.find_last_of("/")+1);
 	if(root_dir.compare(path_to_frames) == 0) { // if frames are in current folder
 		root_dir = "./";
@@ -245,21 +249,62 @@ int main(int argc, char * argv[])
 		return 1;
 	}
 
-	// draw trajectories
+	//// prepare for vizualization
+	// generate a color scheme for drawing of trajectories
+	// color scheme idea was taken from T. Brox dense trajectories
+	std::vector<cv::Scalar> color_scheme(1024);
+	for(int i=0; i<256; ++i) {
+		color_scheme[i] = cv::Scalar(255, i, 0);
+	}
+	for(int i=0; i<256; ++i) {
+		color_scheme[256+i] = cv::Scalar(255-i, 255, 0);
+	}
+	for(int i=0; i<256; ++i) {
+		color_scheme[512+i] = cv::Scalar(0, 255, i);
+	}
+	for(int i=0; i<256; ++i) {
+		color_scheme[768+i] = cv::Scalar(255, 255, 255);
+	}
+
+	// generate Max`s colors for drawing of projections
+	std::vector<cv::Scalar> max_colors(16);
+	max_colors[0] = cv::Scalar(255, 0, 0);
+	max_colors[1] = cv::Scalar(0, 255, 0);
+	max_colors[2] = cv::Scalar(255, 255, 0);
+	max_colors[3] = cv::Scalar(255, 0, 255);
+	max_colors[4] = cv::Scalar(0, 255, 255);
+	max_colors[5] = cv::Scalar(255, 255, 255);
+	max_colors[6] = cv::Scalar(125, 0, 0);
+	max_colors[7] = cv::Scalar(0, 125, 0);
+	max_colors[8] = cv::Scalar(125, 125, 0);
+	max_colors[9] = cv::Scalar(125, 0, 125);
+	max_colors[10] = cv::Scalar(0, 125, 125);
+	max_colors[11] = cv::Scalar(125, 125, 125);
+
+	// draw trajectories on the frames
 	voxel_map_t pos_2_trajectory;
-	draw_trajectories(trajectories, frames, pos_2_trajectory);
+	draw_trajectories(trajectories, color_scheme, frames, pos_2_trajectory);
 
-	//// show graphs
-	const std::string current_frame_name("Current frame");
-	cv::namedWindow(current_frame_name);
-
+	// prepare mouse call handler
+	cv::Scalar background_color(0,0,0);
 	unsigned int current_frame_number = 0;
-	mouse_callback_input_t mouse_callback_input(current_frame_number, pos_2_trajectory, trajectories, partitions, graph_scale);
+	mouse_callback_input_t mouse_callback_input(current_frame_number, pos_2_trajectory, trajectories, partitions, max_colors);
+	mouse_callback_input._plot_xy = cv::Mat(frames[0].size(), CV_8UC3, background_color);
+	mouse_callback_input._plot_xt = cv::Mat(cv::Size(frames[0].size().width, video_length), CV_8UC3, background_color);
+	mouse_callback_input._plot_ty = cv::Mat(cv::Size(video_length, frames[0].size().height), CV_8UC3, background_color);
+	mouse_callback_input._plot_xy_name = std::string("xy projection"); 
+	mouse_callback_input._plot_xt_name = std::string("xt projection");
+	mouse_callback_input._plot_ty_name = std::string("ty projection");
+
+	//// do vizualization
+	std::string current_frame_name("Current frame");
+	cv::imshow(current_frame_name, frames[current_frame_number]);
 	cv::setMouseCallback(current_frame_name, show_graphs, &mouse_callback_input);
+	cv::imshow(mouse_callback_input._plot_xy_name, mouse_callback_input._plot_xy);
+	cv::imshow(mouse_callback_input._plot_xt_name, mouse_callback_input._plot_xt);
+	cv::imshow(mouse_callback_input._plot_ty_name, mouse_callback_input._plot_ty);
 
 	for(;;) {
-		cv::imshow(current_frame_name, frames[current_frame_number]);
-
 		int c = cv::waitKey(0);
 		if( (c & 255) == 27 ) { // if ESC
 			return 0;
@@ -269,19 +314,25 @@ int main(int argc, char * argv[])
 				// Go to the next frame
 				if(current_frame_number < video_length-1) {
 					++current_frame_number;
+					cv::imshow(current_frame_name, frames[current_frame_number]);
 				}
 				break;
 			case 'b':
 				// Go to the previous frame
 				if(current_frame_number > 0) {
 					--current_frame_number;
+					cv::imshow(current_frame_name, frames[current_frame_number]);
 				}
 				break;
 			case 'r':
 				// Refresh
-				cv::destroyAllWindows();
-				cv::imshow(current_frame_name, frames[current_frame_number]);
-				cv::setMouseCallback(current_frame_name, show_graphs, &mouse_callback_input);
+				mouse_callback_input._num_drawn_trajectories = 0;
+				mouse_callback_input._plot_xy = background_color;
+				mouse_callback_input._plot_xt = background_color;
+				mouse_callback_input._plot_ty = background_color;
+				cv::imshow(mouse_callback_input._plot_xy_name, mouse_callback_input._plot_xy);
+				cv::imshow(mouse_callback_input._plot_xt_name, mouse_callback_input._plot_xt);
+				cv::imshow(mouse_callback_input._plot_ty_name, mouse_callback_input._plot_ty);
 				break;
 		}
 	}
@@ -299,6 +350,7 @@ static void show_graphs( int event, int x, int y, int, void * args)
 			mouse_callback_input_t * callback_input = (mouse_callback_input_t*)args;
 
 			unsigned int current_frame = callback_input->_current_frame_number;
+
 			int seleceted_traj_id = callback_input->_trajectory_id(x, y, current_frame);
 			if(seleceted_traj_id == -1) { // trajectory is not selected
 				return;
@@ -307,169 +359,96 @@ static void show_graphs( int event, int x, int y, int, void * args)
 			const trajectory_t & trajectory = callback_input->_trajectories[seleceted_traj_id];
 			const partition_t & partition = callback_input->_partitions[seleceted_traj_id];
 
-			cv::Mat xy_proj, xt_proj, yt_proj;
-			draw_xy_projection(trajectory, partition, xy_proj, callback_input->_scale);
-			draw_tx_projection(trajectory, partition, xt_proj, callback_input->_scale);
-			draw_ty_projection(trajectory, partition, yt_proj, callback_input->_scale);
+			// Select a color
+			const std::vector<cv::Scalar> & color_scheme = callback_input->_color_scheme;
+			if( callback_input->_num_drawn_trajectories >= color_scheme.size() ) {
+				std::cout << "Not enough colors. Press 'r' to refresh" << std::endl;
+				break;
+			}
+			//cv::Scalar color_for_projections = color_scheme[callback_input->_num_drawn_trajectories];
+			cv::Scalar color_for_projections = cv::Scalar(0,255,0);
+			cv::Scalar color_for_partition = cv::Scalar(0,0,255);
+			// Draw projections
+			draw_xy_projection(trajectory, callback_input->_plot_xy, color_for_projections);
+			draw_xy_partition(trajectory, partition, callback_input->_plot_xy, color_for_partition);
 
-			cv::imshow("xy projection: " + std::to_string(seleceted_traj_id), xy_proj);
-			cv::imshow("tx projection: " + std::to_string(seleceted_traj_id), xt_proj);
-			cv::imshow("ty projection: " + std::to_string(seleceted_traj_id), yt_proj);
+			draw_xt_projection(trajectory, callback_input->_plot_xt, color_for_projections);
+			draw_xt_partition(trajectory, partition, callback_input->_plot_xt, color_for_partition);
+
+			draw_ty_projection(trajectory, callback_input->_plot_ty, color_for_projections);
+			draw_ty_partition(trajectory, partition, callback_input->_plot_ty, color_for_partition);
+
+			callback_input->_num_drawn_trajectories++;
+
+			// Show them
+			cv::imshow(callback_input->_plot_xy_name, callback_input->_plot_xy);
+			cv::imshow(callback_input->_plot_xt_name, callback_input->_plot_xt);
+			cv::imshow(callback_input->_plot_ty_name, callback_input->_plot_ty);
 			break;
 		}
 		case cv::EVENT_RBUTTONDOWN: {
-			// show 3D trajectory
+		// TODO show 3D trajectory
 			break;
 		}
 	}
 }
 
-void draw_xy_projection( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, float scale)
+// TODO use a function draw_curve(...) for all drawing
+void draw_xy_projection( const trajectory_t & tr, cv::Mat & out, const cv::Scalar & color)
 {
-	if( scale < 1 || scale > 100) {
-	       	scale = 1;
-	}
-	const cv::Size border_pix(5,5);
-	
-	// Originally trajectorys` elements are float
-	int min_x = floor(*std::min_element(tr._x.begin(), tr._x.end()));
-	int max_x = ceil(*std::max_element(tr._x.begin(), tr._x.end()));
-	int min_y = floor(*std::min_element(tr._y.begin(), tr._y.end()));
-	int max_y = ceil(*std::max_element(tr._y.begin(), tr._y.end()));
-
-	if( scale*std::max(max_x-min_x+1, max_y-min_y+1) > max_win_size ) {
-		scale = max_win_size / std::max(max_x-min_x+1, max_y-min_y+1);
-	}
-
-	cv::Point zero = scale*cv::Point(min_x, min_y);
-	cv::Size plot_size(scale*(max_x-min_x+1), scale*(max_y-min_y+1));
-	cv::Size out_size = plot_size + border_pix*2;
-
-	out.release();
-	out = cv::Mat::zeros(out_size, CV_8UC3);
-	draw_2D_axies(out, border_pix);
-
-	cv::Mat plot_area(out, cv::Rect(border_pix.width, border_pix.height, plot_size.width, plot_size.height)); // TODO make more compact
-
-	// Draw trajectory
 	for(size_t i=0; i<tr.size()-1; ++i) {
-		cv::Point from = scale*cv::Point(tr._x[i], tr._y[i]);
-		cv::Point to = scale*cv::Point(tr._x[i+1], tr._y[i+1]);
-		cv::line(plot_area, from-zero, to-zero, cv::Scalar(0,125,0));
-	}
-	// Show partitions
-	for( unsigned int p : parts ) {
-		cv::Point boundary = scale*cv::Point(tr._x[p], tr._y[p]);
-		cv::circle(plot_area, boundary-zero, 2, cv::Scalar(0,0,255), -1);
+		cv::Point from = cv::Point(tr._x[i], tr._y[i]);
+		cv::Point to = cv::Point(tr._x[i+1], tr._y[i+1]);
+		cv::line(out, from, to, color);
 	}
 }
-void draw_tx_projection( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, float scale)
+void draw_xt_projection( const trajectory_t & tr, cv::Mat & out, const cv::Scalar & color)
 {
-	if( scale < 1 || scale > 100) {
-	       	scale = 1;
-	}
-	const cv::Size border_pix(5,5);
-	
-	// Originally trajectorys` elements are float
-	int min_x = floor(*std::min_element(tr._x.begin(), tr._x.end()));
-	int max_x = ceil(*std::max_element(tr._x.begin(), tr._x.end()));
-	int start = tr._t.front();
-	int end = tr._t.back();
-
-	if( scale*std::max(end-start+1, max_x-min_x+1) > max_win_size ) {
-		scale = max_win_size / std::max(end-start+1, max_x-min_x+1);
-	}
-
-	cv::Point zero = scale*cv::Point(start, min_x);
-	cv::Size plot_size(scale*(end-start+1), scale*(max_x-min_x+1));
-	cv::Size out_size = plot_size + border_pix*2;
-
-	out.release();
-	out = cv::Mat::zeros(out_size, CV_8UC3);
-	draw_2D_axies(out, border_pix);
-
-	cv::Mat plot_area(out, cv::Rect(border_pix.width, border_pix.height, plot_size.width, plot_size.height)); // TODO make more compact
-
-	// Draw trajectory
 	for(size_t i=0; i<tr.size()-1; ++i) {
-		cv::Point from = scale*cv::Point(tr._t[i], tr._x[i]);
-		cv::Point to = scale*cv::Point(tr._t[i+1], tr._x[i+1]);
-		cv::line(plot_area, from-zero, to-zero, cv::Scalar(0,125,0));
-	}
-	// Show partitions
-	for( unsigned int p : parts ) {
-		cv::Point boundary = scale*cv::Point(tr._t[p], tr._x[p]);
-		cv::circle(plot_area, boundary-zero, 2, cv::Scalar(0,0,255), -1);
+		cv::Point from = cv::Point(tr._x[i], tr._t[i]);
+		cv::Point to = cv::Point(tr._x[i+1], tr._t[i+1]);
+		cv::line(out, from, to, color);
 	}
 }
-void draw_ty_projection( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, float scale)
+void draw_ty_projection( const trajectory_t & tr, cv::Mat & out, const cv::Scalar & color)
 {
-	if( scale < 1 || scale > 100) {
-	       	scale = 1;
-	}
-	const cv::Size border_pix(5,5);
-	
-	// Originally trajectorys` elements are float
-	int min_y = floor(*std::min_element(tr._y.begin(), tr._y.end()));
-	int max_y = ceil(*std::max_element(tr._y.begin(), tr._y.end()));
-	int start = tr._t.front();
-	int end = tr._t.back();
-
-	if( scale*std::max(end-start+1, max_y-min_y+1) > max_win_size ) {
-		scale = max_win_size / std::max(end-start+1, max_y-min_y+1);
-	}
-
-	cv::Point zero = scale*cv::Point(start, min_y);
-	cv::Size plot_size(scale*(end-start+1), scale*(max_y-min_y+1));
-	cv::Size out_size = plot_size + border_pix*2;
-
-	out.release();
-	out = cv::Mat::zeros(out_size, CV_8UC3);
-	draw_2D_axies(out, border_pix);
-
-	cv::Mat plot_area(out, cv::Rect(border_pix.width, border_pix.height, plot_size.width, plot_size.height)); // TODO make more compact
-
-	// Draw trajectory
 	for(size_t i=0; i<tr.size()-1; ++i) {
-		cv::Point from = scale*cv::Point(tr._t[i], tr._y[i]);
-		cv::Point to = scale*cv::Point(tr._t[i+1], tr._y[i+1]);
-		cv::line(plot_area, from-zero, to-zero, cv::Scalar(0,125,0));
-	}
-	// Show partitions
-	for( unsigned int p : parts ) {
-		cv::Point boundary = scale*cv::Point(tr._t[p], tr._y[p]);
-		cv::circle(plot_area, boundary-zero, 2, cv::Scalar(0,0,255), -1);
+		cv::Point from = cv::Point(tr._t[i], tr._y[i]);
+		cv::Point to = cv::Point(tr._t[i+1], tr._y[i+1]);
+		cv::line(out, from, to, color);
 	}
 }
 
-void draw_2D_axies(cv::Mat & region, const cv::Size & border)
+// TODO use a function draw_points(...) for all drawing
+void draw_xy_partition( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, const cv::Scalar & color)
 {
-	cv::Rect rect(border.width, border.height, region.size().width-2*border.width, region.size().height-2*border.height);
-	cv::rectangle(region, rect, cv::Scalar(75, 75, 75));
+	for( unsigned int p : parts ) {
+		cv::Point boundary = cv::Point(tr._x[p], tr._y[p]);
+		cv::circle(out, boundary, 1, color, -1);
+	}
+}
+void draw_xt_partition( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, const cv::Scalar & color)
+{
+	for( unsigned int p : parts ) {
+		cv::Point boundary = cv::Point(tr._x[p], tr._t[p]);
+		cv::circle(out, boundary, 1, color, -1);
+	}
+}
+void draw_ty_partition( const trajectory_t & tr, const partition_t & parts, cv::Mat & out, const cv::Scalar & color)
+{
+	for( unsigned int p : parts ) {
+		cv::Point boundary = cv::Point(tr._t[p], tr._y[p]);
+		cv::circle(out, boundary, 1, color, -1);
+	}
 }
 
-void draw_trajectories(const std::vector<trajectory_t> & trajectories, std::vector<cv::Mat> & video, voxel_map_t & pos_2_trajectory)
+void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<cv::Scalar> & color_scheme, std::vector<cv::Mat> & video, voxel_map_t & pos_2_trajectory)
 {
 	int video_length = video.size();
 	int width = video[0].size().width; 
 	int height = video[0].size().height;
 			
 	pos_2_trajectory.resize(width, height, video_length);
-
-	// color scheme idea is taken from T. Brox dense trajectories
-	std::vector<cv::Scalar> color_scheme(1024);
-	for(int i=0; i<256; ++i) {
-		color_scheme[i] = cv::Scalar(255, i, 0);
-	}
-	for(int i=0; i<256; ++i) {
-		color_scheme[256+i] = cv::Scalar(255-i, 255, 0);
-	}
-	for(int i=0; i<256; ++i) {
-		color_scheme[512+i] = cv::Scalar(0, 255, i);
-	}
-	for(int i=0; i<256; ++i) {
-		color_scheme[768+i] = cv::Scalar(255, 255, 255);
-	}
 
 	for(unsigned int j=0; j<trajectories.size(); ++j) {
 		for(size_t i=0; i<trajectories[j].size(); ++i) {
