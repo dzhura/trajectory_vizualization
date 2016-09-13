@@ -116,8 +116,8 @@ class mouse_callback_input_t
 	cv::Mat _plot_xy_cords;
 	std::string _plot_xy_cords_name;
 
-	gnuplot_ctrl * _plot_xt;
-	gnuplot_ctrl * _plot_yt;
+	gnuplot_ctrl * _plot_xt[2];
+	gnuplot_ctrl * _plot_yt[2];
 	unsigned int _num_drawn_trajectories;
 
 	public:
@@ -126,19 +126,23 @@ class mouse_callback_input_t
 				const std::vector<cv::Scalar> & color_scheme):
 			       	_current_frame_number(current_frame_number), _trajectory_id(trajectory_id),
 			       	_trajectories(trajectories), _partitions(partitions),
-				_color_scheme(color_scheme),
-				 _plot_xt(gnuplot_init()), _plot_yt(gnuplot_init()),
-				_num_drawn_trajectories(0)
+				_color_scheme(color_scheme), _num_drawn_trajectories(0)
 	{
-		gnuplot_set_xlabel(_plot_xt, (char*)"t");
-		gnuplot_set_ylabel(_plot_xt, (char*)"x");
-		gnuplot_set_xlabel(_plot_yt, (char*)"t");
-		gnuplot_set_ylabel(_plot_yt, (char*)"y");
+		for(int i=0; i<2; ++i) {
+			_plot_xt[i] = gnuplot_init();
+			_plot_yt[i] = gnuplot_init();
+			gnuplot_set_xlabel(_plot_xt[i], (char*)"t");
+			gnuplot_set_ylabel(_plot_xt[i], (char*)"x");
+			gnuplot_set_xlabel(_plot_yt[i], (char*)"t");
+			gnuplot_set_ylabel(_plot_yt[i], (char*)"y");
+		}
 	}
 
 	~mouse_callback_input_t() {
-		gnuplot_close(_plot_xt);
-		gnuplot_close(_plot_yt);
+		for(int i=0; i<2; ++i) {
+			gnuplot_close(_plot_xt[i]);
+			gnuplot_close(_plot_yt[i]);
+		}
 	}
 }; // mouse_callback_input_t
 
@@ -338,9 +342,11 @@ int main(int argc, char * argv[])
 				mouse_callback_input._num_drawn_trajectories = 0;
 				mouse_callback_input._plot_xy_cords = background_color;
 				cv::imshow(mouse_callback_input._plot_xy_cords_name, mouse_callback_input._plot_xy_cords);
-				cv::moveWindow(mouse_callback_input._plot_xy_cords_name, frames[0].size().width, 0);
-				gnuplot_resetplot(mouse_callback_input._plot_xt);
-				gnuplot_resetplot(mouse_callback_input._plot_yt);
+				//cv::moveWindow(mouse_callback_input._plot_xy_cords_name, frames[0].size().width, 0);
+				for(int i=0; i<2; ++i) {
+					gnuplot_resetplot(mouse_callback_input._plot_xt[i]);
+					gnuplot_resetplot(mouse_callback_input._plot_yt[i]);
+				}
 				break;
 		}
 	}
@@ -426,8 +432,12 @@ static void show_graphs( int event, int x, int y, int, void * args)
 			convolve(y_speed, derivative, y_acceleration);
 
 			// Prepare to plot
-			gnuplot_resetplot(callback_input->_plot_xt);
-			gnuplot_resetplot(callback_input->_plot_yt);
+			for(int i=0; i<2; ++i) {
+				gnuplot_resetplot(callback_input->_plot_xt[i]);
+				gnuplot_resetplot(callback_input->_plot_yt[i]);
+				gnuplot_setstyle(callback_input->_plot_xt[i], (char*)"lines");
+				gnuplot_setstyle(callback_input->_plot_yt[i], (char*)"lines");
+			}
 			char trajectory_title[50];
 			sprintf(trajectory_title, "trajectory %d", callback_input->_num_drawn_trajectories);
 			char speed_title[50];
@@ -437,15 +447,13 @@ static void show_graphs( int event, int x, int y, int, void * args)
 
 			// Plot projections, speed and acceleration
 			// xt
-			gnuplot_setstyle(callback_input->_plot_xt, (char*)"lines");
-			gnuplot_plot_x(callback_input->_plot_xt, &smooth_x[0], smooth_x.size(), trajectory_title);
-			gnuplot_plot_x(callback_input->_plot_xt, &x_speed[0], x_speed.size(), speed_title);
-			gnuplot_plot_x(callback_input->_plot_xt, &x_acceleration[0], x_acceleration.size(), acceleration_title);
+			gnuplot_plot_x(callback_input->_plot_xt[0], &smooth_x[0], smooth_x.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_xt[1], &x_speed[0], x_speed.size(), speed_title);
+			gnuplot_plot_x(callback_input->_plot_xt[1], &x_acceleration[0], x_acceleration.size(), acceleration_title);
 			// yt
-			gnuplot_setstyle(callback_input->_plot_yt, (char*)"lines");
-			gnuplot_plot_x(callback_input->_plot_yt, &smooth_y[0], smooth_y.size(), trajectory_title);
-			gnuplot_plot_x(callback_input->_plot_yt, &y_speed[0], y_speed.size(), speed_title);
-			gnuplot_plot_x(callback_input->_plot_yt, &y_acceleration[0], y_acceleration.size(), acceleration_title);
+			gnuplot_plot_x(callback_input->_plot_yt[0], &smooth_y[0], smooth_y.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_yt[1], &y_speed[0], y_speed.size(), speed_title);
+			gnuplot_plot_x(callback_input->_plot_yt[1], &y_acceleration[0], y_acceleration.size(), acceleration_title);
 
 			// get partitions
 			std::vector<double> 	x_speed_partition(partition.size()), y_speed_partition(partition.size()),
@@ -458,15 +466,19 @@ static void show_graphs( int event, int x, int y, int, void * args)
 				y_acceleration_partition[i] = y_acceleration[partition[i]];
 			}
 
+			// perepare to plot
+			for(int i=0; i<2; ++i) {
+				gnuplot_setstyle(callback_input->_plot_yt[i], (char*)"points");
+				gnuplot_setstyle(callback_input->_plot_xt[i], (char*)"points");
+			}
+
 			// plot pratition points
 			// xt
-			gnuplot_setstyle(callback_input->_plot_xt, (char*)"points");
-			gnuplot_plot_xy(callback_input->_plot_xt, &t_partition[0], &x_speed_partition[0], x_speed_partition.size(), (char*)"partition");
-			gnuplot_plot_xy(callback_input->_plot_xt, &t_partition[0], &x_acceleration_partition[0], x_acceleration_partition.size(), (char*)"partition");
+			gnuplot_plot_xy(callback_input->_plot_xt[1], &t_partition[0], &x_speed_partition[0], x_speed_partition.size(), (char*)"partition");
+			gnuplot_plot_xy(callback_input->_plot_xt[1], &t_partition[0], &x_acceleration_partition[0], x_acceleration_partition.size(), (char*)"partition");
 			// ty
-			gnuplot_setstyle(callback_input->_plot_yt, (char*)"points");
-			gnuplot_plot_xy(callback_input->_plot_yt, &t_partition[0], &y_speed_partition[0], y_speed_partition.size(), (char*)"partition");
-			gnuplot_plot_xy(callback_input->_plot_yt, &t_partition[0], &y_acceleration_partition[0], y_acceleration_partition.size(), (char*)"partition");
+			gnuplot_plot_xy(callback_input->_plot_yt[1], &t_partition[0], &y_speed_partition[0], y_speed_partition.size(), (char*)"partition");
+			gnuplot_plot_xy(callback_input->_plot_yt[1], &t_partition[0], &y_acceleration_partition[0], y_acceleration_partition.size(), (char*)"partition");
 
 
 			callback_input->_num_drawn_trajectories++;
