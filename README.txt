@@ -2,10 +2,11 @@ Vizualization of xy, tx and ty projection of a trajectory. A trajectory is selec
 Frames can be traversed forward and bacward by pressing 'f' and 'b' buttoms respectively. The projections are shown in separate windows.
 Press 'r' to remove all windows exept of the main window.
 
-Requirements: Opencv 2.4, g++ with C++11 support, make and pkg-config
+Requirements: OpenCV 2.4, g++ with C++11 support, GNU make, pkg-config and gnuplot
 
-Usage ./trajectory_vizualization <path_to_trajectories> <path_to_partition> <path_to_frames> <graph_scale>
-	 <scale_factor> should be in [1...100]
+gnuplot_i is developed by N. Devillard: http://ndevilla.free.fr/gnuplot/
+
+Usage ./trajectory_vizualization <path_to_trajectories> <path_to_partition> <path_to_frames>
 
 - <path_to_trajectories> <path_to_partition> are dat files with following structure:
 	<video_length>
@@ -34,6 +35,3 @@ Usage ./trajectory_vizualization <path_to_trajectories> <path_to_partition> <pat
 	<path_to_frame_1>
 	...
 	<path_to_frame_m-1>
-
-- <graph_scale> is used for enlarging sides of plots. Maximal length of the larger side of a plot is 1000 pixels.
-	It preserves aspect ratio 1:1
