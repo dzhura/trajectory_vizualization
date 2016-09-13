@@ -136,6 +136,8 @@ class mouse_callback_input_t
 			gnuplot_set_xlabel(_plot_yt[i], (char*)"t");
 			gnuplot_set_ylabel(_plot_yt[i], (char*)"y");
 		}
+		gnuplot_cmd(_plot_xt[1], (char*)"set xzeroaxis");
+		gnuplot_cmd(_plot_yt[1], (char*)"set xzeroaxis");
 	}
 
 	~mouse_callback_input_t() {
