@@ -114,13 +114,8 @@ class mouse_callback_input_t
 	const std::vector<cv::Scalar> & _color_scheme;
 
 	cv::Mat _plot_xy_cords;
-	cv::Mat _plot_xt_cords;
-	cv::Mat _plot_ty_cords;
 	std::string _plot_xy_cords_name;
-	std::string _plot_xt_cords_name;
-	std::string _plot_ty_cords_name;
 
-	gnuplot_ctrl * _plot_xy;
 	gnuplot_ctrl * _plot_xt;
 	gnuplot_ctrl * _plot_yt;
 	unsigned int _num_drawn_trajectories;
@@ -132,19 +127,16 @@ class mouse_callback_input_t
 			       	_current_frame_number(current_frame_number), _trajectory_id(trajectory_id),
 			       	_trajectories(trajectories), _partitions(partitions),
 				_color_scheme(color_scheme),
-				_plot_xy(gnuplot_init()), _plot_xt(gnuplot_init()), _plot_yt(gnuplot_init()),
+				 _plot_xt(gnuplot_init()), _plot_yt(gnuplot_init()),
 				_num_drawn_trajectories(0)
 	{
-		gnuplot_set_xlabel(_plot_xy, (char*)"x");
-		gnuplot_set_ylabel(_plot_xy, (char*)"y");
-		gnuplot_set_xlabel(_plot_xt, (char*)"x");
-		gnuplot_set_ylabel(_plot_xt, (char*)"t");
-		gnuplot_set_xlabel(_plot_yt, (char*)"y");
-		gnuplot_set_ylabel(_plot_yt, (char*)"t");
+		gnuplot_set_xlabel(_plot_xt, (char*)"t");
+		gnuplot_set_ylabel(_plot_xt, (char*)"x");
+		gnuplot_set_xlabel(_plot_yt, (char*)"t");
+		gnuplot_set_ylabel(_plot_yt, (char*)"y");
 	}
 
 	~mouse_callback_input_t() {
-		gnuplot_close(_plot_xy);
 		gnuplot_close(_plot_xt);
 		gnuplot_close(_plot_yt);
 	}
@@ -163,7 +155,6 @@ int main(int argc, char * argv[])
 
 	if(argc!=1+3) {
 		std::cout << "Usage: " << argv[0] << " <path_to_trajectories> <path_to_partition> <path_to_frames>" << std::endl;
-		std::cout << "\t <scale_factor> should be in [1...100]" << std::endl;
 		return 1;
 	}
 
@@ -292,7 +283,7 @@ int main(int argc, char * argv[])
 
 	// generate Max`s colors for drawing of projections
 	std::vector<cv::Scalar> max_colors(16);
-	max_colors[0] = cv::Scalar(255, 0, 0);
+	max_colors[0] = cv::Scalar(255, 0, 0, 1);
 	max_colors[1] = cv::Scalar(0, 255, 0);
 	max_colors[2] = cv::Scalar(255, 255, 0);
 	max_colors[3] = cv::Scalar(255, 0, 255);
@@ -304,6 +295,7 @@ int main(int argc, char * argv[])
 	max_colors[9] = cv::Scalar(125, 0, 125);
 	max_colors[10] = cv::Scalar(0, 125, 125);
 	max_colors[11] = cv::Scalar(125, 125, 125);
+	std::cout << max_colors[0] << std::endl;
 
 	// draw trajectories on the frames
 	voxel_map_t pos_2_trajectory;
@@ -314,19 +306,14 @@ int main(int argc, char * argv[])
 	unsigned int current_frame_number = 0;
 	mouse_callback_input_t mouse_callback_input(current_frame_number, pos_2_trajectory, trajectories, partitions, max_colors);
 	mouse_callback_input._plot_xy_cords = cv::Mat(frames[0].size(), CV_8UC3, background_color);
-	mouse_callback_input._plot_xt_cords = cv::Mat(cv::Size(frames[0].size().width, video_length), CV_8UC3, background_color);
-	mouse_callback_input._plot_ty_cords = cv::Mat(cv::Size(video_length, frames[0].size().height), CV_8UC3, background_color);
 	mouse_callback_input._plot_xy_cords_name = std::string("xy projection"); 
-	mouse_callback_input._plot_xt_cords_name = std::string("xt projection");
-	mouse_callback_input._plot_ty_cords_name = std::string("ty projection");
 
 	//// do vizualization
 	std::string current_frame_name("Current frame");
 	cv::imshow(current_frame_name, frames[current_frame_number]);
 	cv::setMouseCallback(current_frame_name, show_graphs, &mouse_callback_input);
 	cv::imshow(mouse_callback_input._plot_xy_cords_name, mouse_callback_input._plot_xy_cords);
-	cv::imshow(mouse_callback_input._plot_xt_cords_name, mouse_callback_input._plot_xt_cords);
-	cv::imshow(mouse_callback_input._plot_ty_cords_name, mouse_callback_input._plot_ty_cords);
+	cv::moveWindow(mouse_callback_input._plot_xy_cords_name, frames[0].size().width, 0);
 
 	for(;;) {
 		int c = cv::waitKey(0);
@@ -352,14 +339,10 @@ int main(int argc, char * argv[])
 				// Refresh
 				mouse_callback_input._num_drawn_trajectories = 0;
 				mouse_callback_input._plot_xy_cords = background_color;
-				mouse_callback_input._plot_xt_cords = background_color;
-				mouse_callback_input._plot_ty_cords = background_color;
-				gnuplot_resetplot(mouse_callback_input._plot_xy);
+				cv::imshow(mouse_callback_input._plot_xy_cords_name, mouse_callback_input._plot_xy_cords);
+				cv::moveWindow(mouse_callback_input._plot_xy_cords_name, frames[0].size().width, 0);
 				gnuplot_resetplot(mouse_callback_input._plot_xt);
 				gnuplot_resetplot(mouse_callback_input._plot_yt);
-				cv::imshow(mouse_callback_input._plot_xy_cords_name, mouse_callback_input._plot_xy_cords);
-				cv::imshow(mouse_callback_input._plot_xt_cords_name, mouse_callback_input._plot_xt_cords);
-				cv::imshow(mouse_callback_input._plot_ty_cords_name, mouse_callback_input._plot_ty_cords);
 				break;
 		}
 	}
@@ -405,28 +388,19 @@ static void show_graphs( int event, int x, int y, int, void * args)
 			}
 
 			// get trajectory partition points
-			std::vector<int> x_partition(partition.size()), y_partition(partition.size()), t_partition(partition.size());
+			std::vector<int> x_partition(partition.size()), y_partition(partition.size());
 			for(unsigned int i=0; i<partition.size(); ++i) {
 				x_partition[i] = rounded_x[partition[i]];
 				y_partition[i] = rounded_y[partition[i]];
-				t_partition[i] = partition[i];
 			}
 
 			// Draw projections and partitions of trajectory
 			// xy
 			draw_curve(rounded_x, rounded_y, color_for_projections, callback_input->_plot_xy_cords);
 			draw_points(x_partition, y_partition, color_for_partition, callback_input->_plot_xy_cords);
-			// xt
-			draw_curve(rounded_x, trajectory._t, color_for_projections, callback_input->_plot_xt_cords);
-			draw_points(x_partition, t_partition, color_for_partition, callback_input->_plot_xt_cords);
-			// ty
-			draw_curve(trajectory._t, rounded_y, color_for_projections, callback_input->_plot_ty_cords);
-			draw_points(t_partition, y_partition, color_for_partition, callback_input->_plot_ty_cords);
 
 			// Show them
 			cv::imshow(callback_input->_plot_xy_cords_name, callback_input->_plot_xy_cords);
-			cv::imshow(callback_input->_plot_xt_cords_name, callback_input->_plot_xt_cords);
-			cv::imshow(callback_input->_plot_ty_cords_name, callback_input->_plot_ty_cords);
 
 			// plot speed and accelearation
 			if(trajectory.size() < 5) {
@@ -454,10 +428,32 @@ static void show_graphs( int event, int x, int y, int, void * args)
 			convolve(x_speed, derivative, x_acceleration);
 			convolve(y_speed, derivative, y_acceleration);
 
+			// Prepare to plot
+			gnuplot_resetplot(callback_input->_plot_xt);
+			gnuplot_resetplot(callback_input->_plot_yt);
+			char trajectory_title[50];
+			sprintf(trajectory_title, "trajectory %d", callback_input->_num_drawn_trajectories);
+			char speed_title[50];
+			sprintf(speed_title, "speed %d", callback_input->_num_drawn_trajectories);
+			char acceleration_title[50];
+			sprintf(acceleration_title, "acceleration %d", callback_input->_num_drawn_trajectories);
+
+			// Plot projections, speed and acceleration
+			// xt
+			gnuplot_setstyle(callback_input->_plot_xt, (char*)"lines");
+			gnuplot_plot_x(callback_input->_plot_xt, &smooth_x[0], smooth_x.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_xt, &x_speed[0], x_speed.size(), speed_title);
+			gnuplot_plot_x(callback_input->_plot_xt, &x_acceleration[0], x_acceleration.size(), acceleration_title);
+			// yt
+			gnuplot_setstyle(callback_input->_plot_yt, (char*)"lines");
+			gnuplot_plot_x(callback_input->_plot_yt, &smooth_y[0], smooth_y.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_yt, &y_speed[0], y_speed.size(), speed_title);
+			gnuplot_plot_x(callback_input->_plot_yt, &y_acceleration[0], y_acceleration.size(), acceleration_title);
+
 			// get partitions
-			std::vector<double> x_speed_partition(partition.size()), y_speed_partition(partition.size()),
+			std::vector<double> 	x_speed_partition(partition.size()), y_speed_partition(partition.size()),
 						x_acceleration_partition(partition.size()), y_acceleration_partition(partition.size()),
-						double_t_partition(t_partition.begin(), t_partition.end());
+						t_partition(partition.begin(), partition.end());
 			for(unsigned int i=0; i<partition.size(); ++i) {
 				x_speed_partition[i] = x_speed[partition[i]];
 				y_speed_partition[i] = y_speed[partition[i]];
@@ -465,36 +461,15 @@ static void show_graphs( int event, int x, int y, int, void * args)
 				y_acceleration_partition[i] = y_acceleration[partition[i]];
 			}
 
-			// Plot them
-			char speed_title[50];
-			sprintf(speed_title, "speed %d", callback_input->_num_drawn_trajectories);
-			char acceleration_title[50];
-			sprintf(acceleration_title, "acceleration %d", callback_input->_num_drawn_trajectories);
-			// xy
-			gnuplot_setstyle(callback_input->_plot_xy, (char*)"lines");
-			gnuplot_plot_xy(callback_input->_plot_xy, &x_speed[0], &y_speed[0], x_speed.size(), speed_title);
-			gnuplot_plot_xy(callback_input->_plot_xy, &x_acceleration[0], &y_acceleration[0], x_acceleration.size(), acceleration_title);
-			// xt
-			gnuplot_setstyle(callback_input->_plot_xt, (char*)"lines");
-			gnuplot_plot_x(callback_input->_plot_xt, &x_speed[0], x_speed.size(), speed_title);
-			gnuplot_plot_x(callback_input->_plot_xt, &x_acceleration[0], x_acceleration.size(), acceleration_title);
-			// yt
-			gnuplot_setstyle(callback_input->_plot_yt, (char*)"lines");
-			gnuplot_plot_x(callback_input->_plot_yt, &y_speed[0], y_speed.size(), speed_title);
-			gnuplot_plot_x(callback_input->_plot_yt, &y_acceleration[0], y_acceleration.size(), acceleration_title);
 			// plot pratition points
-			// xy
-			gnuplot_setstyle(callback_input->_plot_xy, (char*)"points");
-			gnuplot_plot_xy(callback_input->_plot_xy, &x_speed_partition[0], &y_speed_partition[0], x_speed_partition.size(), (char*)"partition");
-			gnuplot_plot_xy(callback_input->_plot_xy, &x_acceleration_partition[0], &y_acceleration_partition[0], x_acceleration_partition.size(), (char*)"partition");
 			// xt
 			gnuplot_setstyle(callback_input->_plot_xt, (char*)"points");
-			gnuplot_plot_xy(callback_input->_plot_xt, &x_speed_partition[0], &double_t_partition[0], x_speed_partition.size(), (char*)"partition");
-			gnuplot_plot_xy(callback_input->_plot_xt, &x_acceleration_partition[0], &double_t_partition[0], x_acceleration_partition.size(), (char*)"partition");
+			gnuplot_plot_xy(callback_input->_plot_xt, &t_partition[0], &x_speed_partition[0], x_speed_partition.size(), (char*)"partition");
+			gnuplot_plot_xy(callback_input->_plot_xt, &t_partition[0], &x_acceleration_partition[0], x_acceleration_partition.size(), (char*)"partition");
 			// ty
 			gnuplot_setstyle(callback_input->_plot_yt, (char*)"points");
-			gnuplot_plot_xy(callback_input->_plot_yt, &y_speed_partition[0], &double_t_partition[0], y_speed_partition.size(), (char*)"partition");
-			gnuplot_plot_xy(callback_input->_plot_yt, &y_acceleration_partition[0], &double_t_partition[0], y_acceleration_partition.size(), (char*)"partition");
+			gnuplot_plot_xy(callback_input->_plot_yt, &t_partition[0], &y_speed_partition[0], y_speed_partition.size(), (char*)"partition");
+			gnuplot_plot_xy(callback_input->_plot_yt, &t_partition[0], &y_acceleration_partition[0], y_acceleration_partition.size(), (char*)"partition");
 
 
 			callback_input->_num_drawn_trajectories++;
@@ -510,16 +485,16 @@ static void show_graphs( int event, int x, int y, int, void * args)
 void draw_curve( const std::vector<int> & h_values, const std::vector<int> & v_values, const cv::Scalar & color, cv::Mat & out)
 {
 	assert(h_values.size() == v_values.size());
-	for(size_t i=0; i<h_values.size()-1; ++i) {
-		cv::Point from = cv::Point(h_values[i], v_values[i]);
-		cv::Point to = cv::Point(h_values[i+1], v_values[i+1]);
+	for(size_t i=1; i<h_values.size(); ++i) {
+		cv::Point from = cv::Point(h_values[i-1], v_values[i-1]);
+		cv::Point to = cv::Point(h_values[i], v_values[i]);
 		cv::line(out, from, to, color);
 	}
 }
 void draw_points( const std::vector<int> & h_values, const std::vector<int> & v_values, const cv::Scalar & color, cv::Mat & out)
 {
 	assert(h_values.size() == v_values.size());
-	for(size_t i=0; i<h_values.size()-1; ++i) {
+	for(size_t i=0; i<h_values.size(); ++i) {
 		cv::Point boundary = cv::Point(h_values[i], v_values[i]);
 		cv::circle(out, boundary, 1, color, -1);
 	}
