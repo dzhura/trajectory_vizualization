@@ -123,7 +123,7 @@ class mouse_callback_input_t
 	public:
 	mouse_callback_input_t( const unsigned int & current_frame_number, const voxel_map_t & trajectory_id,
 	       			const std::vector<trajectory_t> & trajectories, const std::vector<partition_t> & partitions,
-				const std::vector<cv::Scalar> color_scheme):
+				const std::vector<cv::Scalar> & color_scheme):
 			       	_current_frame_number(current_frame_number), _trajectory_id(trajectory_id),
 			       	_trajectories(trajectories), _partitions(partitions),
 				_color_scheme(color_scheme),
@@ -378,7 +378,6 @@ static void show_graphs( int event, int x, int y, int, void * args)
 
 			cv::Scalar color_for_projections = color_scheme[callback_input->_num_drawn_trajectories];
 			cv::Scalar color_for_partition = cv::Scalar(0,0,255);
-			std::cout << color_for_projections << std::endl;
 
 			// round trajectory
 			std::vector<int> rounded_x(trajectory.size()), rounded_y(trajectory.size());
