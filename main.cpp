@@ -282,20 +282,18 @@ int main(int argc, char * argv[])
 	}
 
 	// generate Max`s colors for drawing of projections
-	std::vector<cv::Scalar> max_colors(16);
+	std::vector<cv::Scalar> max_colors(11);
 	max_colors[0] = cv::Scalar(255, 0, 0, 1);
 	max_colors[1] = cv::Scalar(0, 255, 0);
 	max_colors[2] = cv::Scalar(255, 255, 0);
 	max_colors[3] = cv::Scalar(255, 0, 255);
 	max_colors[4] = cv::Scalar(0, 255, 255);
 	max_colors[5] = cv::Scalar(255, 255, 255);
-	max_colors[6] = cv::Scalar(125, 0, 0);
-	max_colors[7] = cv::Scalar(0, 125, 0);
-	max_colors[8] = cv::Scalar(125, 125, 0);
-	max_colors[9] = cv::Scalar(125, 0, 125);
-	max_colors[10] = cv::Scalar(0, 125, 125);
-	max_colors[11] = cv::Scalar(125, 125, 125);
-	std::cout << max_colors[0] << std::endl;
+	max_colors[6] = cv::Scalar(0, 125, 0);
+	max_colors[7] = cv::Scalar(125, 125, 0);
+	max_colors[8] = cv::Scalar(125, 0, 125);
+	max_colors[9] = cv::Scalar(0, 125, 125);
+	max_colors[10] = cv::Scalar(125, 125, 125);
 
 	// draw trajectories on the frames
 	voxel_map_t pos_2_trajectory;
