@@ -56,17 +56,17 @@ bool derivative_template(size_t win_size, std::vector<double> & temp)
 		case 4: 
 			temp.resize(win_size);
 			temp[0] = 0.041666666666666666666666666666667;
-			temp[0] = -1.125;
-			temp[0] = 1.125;
-			temp[1] = -0.041666666666666666666666666666667;
+			temp[1] = -1.125;
+			temp[2] = 1.125;
+			temp[3] = -0.041666666666666666666666666666667;
 			return true;
 		case 5: 
 			temp.resize(win_size);
 			temp[0] = 0.083333333333;
-			temp[0] = -0.66666666666;
-			temp[0] = 0;
-			temp[0] = 0.66666666666;
-			temp[1] = -0.083333333333;
+			temp[1] = -0.66666666666;
+			temp[2] = 0;
+			temp[3] = 0.66666666666;
+			temp[4] = -0.083333333333;
 			return true;
 		default: 
 			// TODO exception
