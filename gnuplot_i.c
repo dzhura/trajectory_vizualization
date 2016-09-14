@@ -330,7 +330,7 @@ void gnuplot_resetplot(gnuplot_ctrl * h)
 
 void gnuplot_plot_x(
     gnuplot_ctrl    *   handle,
-    double          *   d,
+    const double          *   d,
     int                 n,
     char            *   title
 )
@@ -396,8 +396,8 @@ void gnuplot_plot_x(
 
 void gnuplot_plot_xy(
     gnuplot_ctrl    *   handle,
-    double          *   x,
-    double          *   y,
+    const double    *   x,
+    const double    *   y,
     int                 n,
     char            *   title
 )

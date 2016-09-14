@@ -449,11 +449,15 @@ static void show_graphs( int event, int x, int y, int, void * args)
 
 			// Plot projections, speed and acceleration
 			// xt
-			gnuplot_plot_x(callback_input->_plot_xt[0], &smooth_x[0], smooth_x.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_xt[0], &trajectory._x[0], trajectory.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_xt[0], &smooth_x[0], smooth_x.size(), (char*)"smooth");
+
 			gnuplot_plot_x(callback_input->_plot_xt[1], &x_speed[0], x_speed.size(), speed_title);
 			gnuplot_plot_x(callback_input->_plot_xt[1], &x_acceleration[0], x_acceleration.size(), acceleration_title);
 			// yt
-			gnuplot_plot_x(callback_input->_plot_yt[0], &smooth_y[0], smooth_y.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_yt[0], &trajectory._y[0], trajectory.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_yt[0], &smooth_y[0], smooth_y.size(), (char*)"smooth");
+
 			gnuplot_plot_x(callback_input->_plot_yt[1], &y_speed[0], y_speed.size(), speed_title);
 			gnuplot_plot_x(callback_input->_plot_yt[1], &y_acceleration[0], y_acceleration.size(), acceleration_title);
 
