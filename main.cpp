@@ -150,8 +150,10 @@ class mouse_callback_input_t
 
 static void show_graphs( int event, int x, int y, int dummy, void * args);
 
-void draw_curve( const std::vector<int> & h_values, const std::vector<int> & v_values, const cv::Scalar & color, cv::Mat & out);
-void draw_points( const std::vector<int> & h_values, const std::vector<int> & v_values, const cv::Scalar & color, cv::Mat & out);
+void draw_curve( std::vector<int>::const_iterator x_begin, std::vector<int>::const_iterator x_end,
+		std::vector<int>::const_iterator y_begin, std::vector<int>::const_iterator y_end, const cv::Scalar & color, cv::Mat & out);
+void draw_points( std::vector<int>::const_iterator x_begin, std::vector<int>::const_iterator x_end,
+		std::vector<int>::const_iterator y_begin, std::vector<int>::const_iterator y_end, const cv::Scalar & color, cv::Mat & out);
 
 void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<cv::Scalar> & color_scheme, std::vector<cv::Mat> & video, voxel_map_t & pos_2_trajectory);
 
@@ -401,8 +403,8 @@ static void show_graphs( int event, int x, int y, int, void * args)
 
 			// Draw projections and partitions of trajectory
 			// xy
-			draw_curve(rounded_x, rounded_y, color_for_projections, callback_input->_plot_xy_cords);
-			draw_points(x_partition, y_partition, color_for_partition, callback_input->_plot_xy_cords);
+			draw_curve(rounded_x.cbegin(), rounded_x.cend(), rounded_y.cbegin(), rounded_y.cend(), color_for_projections, callback_input->_plot_xy_cords);
+			draw_points(x_partition.cbegin(), x_partition.cend(), y_partition.cbegin(), y_partition.cend(), color_for_partition, callback_input->_plot_xy_cords);
 
 			// Show them
 			cv::imshow(callback_input->_plot_xy_cords_name, callback_input->_plot_xy_cords);
@@ -497,21 +499,22 @@ static void show_graphs( int event, int x, int y, int, void * args)
 	}
 }
 
-void draw_curve( const std::vector<int> & h_values, const std::vector<int> & v_values, const cv::Scalar & color, cv::Mat & out)
+void draw_curve( std::vector<int>::const_iterator x_begin, std::vector<int>::const_iterator x_end,
+		std::vector<int>::const_iterator y_begin, std::vector<int>::const_iterator y_end, const cv::Scalar & color, cv::Mat & out)
 {
-	assert(h_values.size() == v_values.size());
-	for(size_t i=1; i<h_values.size(); ++i) {
-		cv::Point from = cv::Point(h_values[i-1], v_values[i-1]);
-		cv::Point to = cv::Point(h_values[i], v_values[i]);
+	assert( std::distance(x_begin, x_end) == std::distance(y_begin, y_end) );
+	for(auto x = x_begin+1, y = y_begin+1; x!=x_end && y!=y_end; ++x, ++y) {
+		cv::Point from = cv::Point(*(x-1), *(y-1));
+		cv::Point to = cv::Point(*x, *y);
 		cv::line(out, from, to, color);
 	}
 }
-void draw_points( const std::vector<int> & h_values, const std::vector<int> & v_values, const cv::Scalar & color, cv::Mat & out)
+void draw_points( std::vector<int>::const_iterator x_begin, std::vector<int>::const_iterator x_end,
+		std::vector<int>::const_iterator y_begin, std::vector<int>::const_iterator y_end, const cv::Scalar & color, cv::Mat & out)
 {
-	assert(h_values.size() == v_values.size());
-	for(size_t i=0; i<h_values.size(); ++i) {
-		cv::Point boundary = cv::Point(h_values[i], v_values[i]);
-		cv::circle(out, boundary, 1, color, -1);
+	assert( std::distance(x_begin, x_end) == std::distance(y_begin, y_end) );
+	for(auto x = x_begin, y = y_begin; x!=x_end && y!=y_end; ++x, ++y) {
+		cv::circle(out, cv::Point(*x, *y), 1, color, -1);
 	}
 }
 
