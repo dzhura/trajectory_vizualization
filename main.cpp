@@ -21,6 +21,9 @@ extern "C" {
 #include "gnuplot_i.h"
 }
 
+const int not_trajectory_index = -1;
+const int indent = 1; // indent from a point to left, right, top and bottom
+
 struct trajectory_t
 {
         trajectory_t() { } 
@@ -45,86 +48,28 @@ struct trajectory_t
 
 typedef std::vector<unsigned int> partition_t;
 
-// maps a voxel (x,y,t) to an index of trajectory, which it belongs to
-class voxel_map_t
-{
-	public:
-	voxel_map_t():
-       		_widht(0), _height(0), _video_length(0), _data(0) { }
-	voxel_map_t(int width, int height, int video_length):
-		_widht(width), _height(height), _video_length(video_length),
-	       	_data(new int[_widht*_height*_video_length])
-	{
-		std::fill_n(_data, _widht*_height*_video_length, -1);
-	}
-
-	~voxel_map_t()
-	{
-		delete [] _data;
-	}
-
-	void resize(int width, int height, int video_length)
-	{
-		if( _data!=0) {
-			delete [] _data;
-		}
-
-		_widht = width; _height = height; _video_length = video_length;
-		_data = new int[_widht*_height*_video_length];
-		std::fill_n(_data, _widht*_height*_video_length, -1);
-	}
-
-	int & operator() (int x, int y, int t) const
-	{
-		assert( -1 < x && x < _widht );
-		assert( -1 < y && y < _height );
-		assert( -1 < t && t < _video_length );
-
-		return _data[_shift(x, y, t)];
-	}
-
-
-	private:
-	int _widht;
-	int _height;
-	int _video_length;
-
-	int * _data;
-
-	private:
-
-	size_t _shift(int x, int y, int t) const {
-		return x + _widht*(y + t*_height);
-	}
-
-	voxel_map_t(const voxel_map_t &);
-	voxel_map_t(voxel_map_t &);
-	voxel_map_t & operator=(const voxel_map_t &);
-	
-}; // voxel_map_t
-
 // A struct for passing arguments to SetMouseCallback
 class mouse_callback_input_t
 {
 	public:
-	const unsigned int & _current_frame_number;
-	const voxel_map_t & _trajectory_id;
+	const int & _current_frame_number;
+	const cv::Mat & _pos_2_trajectory_id;
 	const std::vector<trajectory_t> & _trajectories;
 	const std::vector<partition_t> & _partitions;
 	const std::vector<cv::Scalar> & _color_scheme;
 
-	cv::Mat _plot_xy_cords;
-	std::string _plot_xy_cords_name;
+	cv::Mat _plot_xy;
+	std::string _plot_xy_name;
 
 	gnuplot_ctrl * _plot_xt[2];
 	gnuplot_ctrl * _plot_yt[2];
 	unsigned int _num_drawn_trajectories;
 
 	public:
-	mouse_callback_input_t( const unsigned int & current_frame_number, const voxel_map_t & trajectory_id,
+	mouse_callback_input_t( const int & current_frame_number, const cv::Mat & trajectory_id,
 	       			const std::vector<trajectory_t> & trajectories, const std::vector<partition_t> & partitions,
 				const std::vector<cv::Scalar> & color_scheme):
-			       	_current_frame_number(current_frame_number), _trajectory_id(trajectory_id),
+			       	_current_frame_number(current_frame_number), _pos_2_trajectory_id(trajectory_id),
 			       	_trajectories(trajectories), _partitions(partitions),
 				_color_scheme(color_scheme), _num_drawn_trajectories(0)
 	{
@@ -155,7 +100,8 @@ void draw_curve( std::vector<int>::const_iterator x_begin, std::vector<int>::con
 void draw_points( std::vector<int>::const_iterator x_begin, std::vector<int>::const_iterator x_end,
 		std::vector<int>::const_iterator y_begin, std::vector<int>::const_iterator y_end, const cv::Scalar & color, cv::Mat & out);
 
-void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<cv::Scalar> & color_scheme, std::vector<cv::Mat> & video, voxel_map_t & pos_2_trajectory);
+// FIXME what to do if color_scheme has less colors than required?
+void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<cv::Scalar> & color_scheme, std::vector<cv::Mat> & video);
 
 int main(int argc, char * argv[]) 
 {
@@ -178,23 +124,60 @@ int main(int argc, char * argv[])
 		return 1;
 	}
 
-	std::string path_to_frames(argv[3]);
-	if( path_to_frames.compare(path_to_frames.find_last_of("."), std::string::npos, ".bmf") != 0 ) {
-		std::cout << path_to_frames << " must be a .bmf file" << std::endl;
+	std::string path_to_list_of_frames(argv[3]);
+	if( path_to_list_of_frames.compare(path_to_list_of_frames.find_last_of("."), std::string::npos, ".bmf") != 0 ) {
+		std::cout << path_to_list_of_frames << " must be a .bmf file" << std::endl;
 		return 1;
 	}
 
 	//// read input
-	// read trajectories
-	std::ifstream in_trajectoires(path_to_trajectories);
-	if( !in_trajectoires.is_open() ) {
-		std::cout << "Canot " << path_to_trajectories << std::endl;
+	// read frames
+	std::string root_dir = path_to_list_of_frames.substr(0, path_to_list_of_frames.find_last_of("/")+1);
+	if(root_dir.compare(path_to_list_of_frames) == 0) { // if frames are in current folder
+		root_dir = "./";
+	}
+
+	std::ifstream in_frames(path_to_list_of_frames);
+	if( !in_frames.is_open() ) {
+		std::cout << "Cannot " << path_to_list_of_frames << std::endl;
 		return 1;
 	}
 
-	unsigned int video_length;
-	unsigned int trajectory_amount;
-	in_trajectoires >> video_length >> trajectory_amount;
+	int video_length;
+	int dummy;
+	in_frames >> video_length >> dummy;
+
+	std::vector<cv::Mat> frames(video_length);
+	for(size_t i=0; i<frames.size(); ++i) {
+		std::string frame_name;
+		in_frames >> frame_name;
+
+		frames[i] = cv::imread(root_dir + frame_name);
+		if(frames[i].data == 0) {
+			std::cout << "Cannot read " << (root_dir + frame_name) << std::endl;
+			return 1;
+		}
+		if(frames[i].size() != frames[0].size()) {
+			std::cout << "Size of " << i+1 << "-th frame differ from sizes of previous frames" << std::endl;
+			return 1;
+		}
+	}
+	in_frames.close();
+
+	// read trajectories
+	std::ifstream in_trajectoires(path_to_trajectories);
+	if( !in_trajectoires.is_open() ) {
+		std::cout << "Cannot open " << path_to_trajectories << std::endl;
+		return 1;
+	}
+
+	int trajectories_video_length;
+	int trajectory_amount;
+	in_trajectoires >> trajectories_video_length >> trajectory_amount;
+	if(trajectories_video_length != video_length) {
+		std::cout << "Trajectories are extracted from a video of another length" << std::endl;
+		return 1;
+	}
 
 	std::vector<trajectory_t> trajectories(trajectory_amount);
 	for(size_t i=0; i<trajectories.size(); ++i) {
@@ -214,15 +197,23 @@ int main(int argc, char * argv[])
 	// read partition of trajectories
 	std::ifstream in_partition(path_to_partition);
 	if( !in_partition.is_open() ) {
-		std::cout << "Canot " << path_to_partition << std::endl;
+		std::cout << "Cannot open " << path_to_partition << std::endl;
 		return 1;
 	}
 
-	unsigned int video_length_2;
-	unsigned int trajectory_amount_2;
-	in_partition >> video_length_2 >> trajectory_amount_2;
+	int partitions_video_length;
+	int partitions_trajectory_amount;
+	in_partition >> partitions_video_length >> partitions_trajectory_amount;
+	if(partitions_video_length != video_length) {
+		std::cout << "Partitions were extracted from a video of another length" << std::endl;
+		return 1;
+	}
+	if(partitions_trajectory_amount != trajectory_amount) {
+		std::cout << "There is no 1-to-1 correspondence btw trajectories and their partitions" << std::endl;
+		return 1;
+	}
 
-	std::vector<partition_t> partitions(trajectory_amount_2);
+	std::vector<partition_t> partitions(trajectory_amount);
 	for(size_t i=0; i<partitions.size(); ++i) {
 		unsigned int partition_amount;
 		in_partition >> partition_amount;
@@ -233,44 +224,6 @@ int main(int argc, char * argv[])
 		}
 	}
 	in_partition.close();
-
-	// read frames
-	std::string root_dir = path_to_frames.substr(0, path_to_frames.find_last_of("/")+1);
-	if(root_dir.compare(path_to_frames) == 0) { // if frames are in current folder
-		root_dir = "./";
-	}
-
-	std::ifstream in_frames(path_to_frames);
-	if( !in_frames.is_open() ) {
-		std::cout << "Canot " << path_to_frames << std::endl;
-		return 1;
-	}
-
-	unsigned int video_length_3;
-	int dummy;
-	in_frames >> video_length_3 >> dummy;
-
-	std::vector<cv::Mat> frames(video_length_3);
-	for(size_t i=0; i<frames.size(); ++i) {
-		std::string frame_name;
-		in_frames >> frame_name;
-
-		frames[i] = cv::imread(root_dir + frame_name);
-		if(frames[i].data == 0) {
-			std::cout << "Cannot read " << (root_dir + frame_name) << std::endl;
-			return 1;
-		}
-	}
-
-	// check input
-	if(video_length_3 != video_length) {
-		std::cout << "Trajectory file is wrong"	<< std::endl;
-		return 1;
-	}
-	if(video_length_3 != video_length_2) {
-		std::cout << "Partition file is wrong" << std::endl;
-		return 1;
-	}
 
 	//// prepare for vizualization
 	// generate a color scheme for drawing of trajectories
@@ -288,8 +241,37 @@ int main(int argc, char * argv[])
 	for(int i=0; i<256; ++i) {
 		color_scheme[768+i] = cv::Scalar(255, 255, 255);
 	}
+	draw_trajectories(trajectories, color_scheme, frames);
 
-	// generate Max`s colors for drawing of projections
+	// create a map: position of a trajectory element to the trajectory index
+	int video_size[] = {frames[0].size().width, frames[0].size().height, video_length}; // sizes of all frames are the same
+	cv::Mat pos_2_trajectory_id(3, video_size, CV_32SC1, not_trajectory_index);
+	for(size_t i = 0; i < trajectories.size(); ++i) {
+		for( size_t point_id=0; point_id < trajectories[i].size(); ++point_id) {
+
+			int floor_x = floor(trajectories[i]._x[point_id]); 
+			int floor_y = floor(trajectories[i]._y[point_id]); 
+			int ceil_x = floor_x + 1;
+			int ceil_y = floor_y + 1;
+
+			cv::Point p1, p2; 
+			p1.x = (floor_x-indent<0)? 0: floor_x-indent; 
+			p1.y = (floor_y-indent<0)? 0: floor_y-indent; 
+			p2.x = (ceil_x+indent>=frames[0].size().width-1)? frames[0].size().width-1: ceil_x+indent;
+			p2.y = (ceil_y+indent>=frames[0].size().height-1)? frames[0].size().height-1: ceil_y+indent; 
+
+			int t = trajectories[i]._t[point_id];
+			for(int y=p1.y; y<=p2.y; ++y)
+			for(int x=p1.x; x<=p2.x; ++x) {
+				pos_2_trajectory_id.at<int>(x, y, t) = i;
+			}
+		}
+	}
+
+	// prepare mouse call handler
+	cv::Scalar background_color(0,0,0);
+	int current_frame_number = 0;
+
 	std::vector<cv::Scalar> max_colors(11);
 	max_colors[0] = cv::Scalar(255, 0, 0, 1);
 	max_colors[1] = cv::Scalar(0, 255, 0);
@@ -303,23 +285,16 @@ int main(int argc, char * argv[])
 	max_colors[9] = cv::Scalar(0, 125, 125);
 	max_colors[10] = cv::Scalar(125, 125, 125);
 
-	// draw trajectories on the frames
-	voxel_map_t pos_2_trajectory;
-	draw_trajectories(trajectories, color_scheme, frames, pos_2_trajectory);
-
-	// prepare mouse call handler
-	cv::Scalar background_color(0,0,0);
-	unsigned int current_frame_number = 0;
-	mouse_callback_input_t mouse_callback_input(current_frame_number, pos_2_trajectory, trajectories, partitions, max_colors);
-	mouse_callback_input._plot_xy_cords = cv::Mat(frames[0].size(), CV_8UC3, background_color);
-	mouse_callback_input._plot_xy_cords_name = std::string("xy projection"); 
+	mouse_callback_input_t mouse_callback_input(current_frame_number, pos_2_trajectory_id, trajectories, partitions, max_colors);
+	mouse_callback_input._plot_xy = cv::Mat(frames[0].size(), CV_8UC3, background_color);
+	mouse_callback_input._plot_xy_name = std::string("xy projection"); 
 
 	//// do vizualization
 	std::string current_frame_name("Current frame");
 	cv::imshow(current_frame_name, frames[current_frame_number]);
 	cv::setMouseCallback(current_frame_name, show_graphs, &mouse_callback_input);
-	cv::imshow(mouse_callback_input._plot_xy_cords_name, mouse_callback_input._plot_xy_cords);
-	cv::moveWindow(mouse_callback_input._plot_xy_cords_name, frames[0].size().width, 0);
+	cv::imshow(mouse_callback_input._plot_xy_name, mouse_callback_input._plot_xy);
+	cv::moveWindow(mouse_callback_input._plot_xy_name, frames[0].size().width, 0);
 
 	for(;;) {
 		int c = cv::waitKey(0);
@@ -344,9 +319,9 @@ int main(int argc, char * argv[])
 			case 'r':
 				// Refresh
 				mouse_callback_input._num_drawn_trajectories = 0;
-				mouse_callback_input._plot_xy_cords = background_color;
-				cv::imshow(mouse_callback_input._plot_xy_cords_name, mouse_callback_input._plot_xy_cords);
-				//cv::moveWindow(mouse_callback_input._plot_xy_cords_name, frames[0].size().width, 0);
+				mouse_callback_input._plot_xy = background_color;
+				cv::imshow(mouse_callback_input._plot_xy_name, mouse_callback_input._plot_xy);
+				//cv::moveWindow(mouse_callback_input._plot_xy_name, frames[0].size().width, 0);
 				for(int i=0; i<2; ++i) {
 					gnuplot_resetplot(mouse_callback_input._plot_xt[i]);
 					gnuplot_resetplot(mouse_callback_input._plot_yt[i]);
@@ -369,15 +344,15 @@ static void show_graphs( int event, int x, int y, int, void * args)
 
 			unsigned int current_frame = callback_input->_current_frame_number;
 
-			int seleceted_traj_id = callback_input->_trajectory_id(x, y, current_frame);
-			if(seleceted_traj_id == -1) { // trajectory is not selected
+			int seleceted_traj_id = callback_input->_pos_2_trajectory_id.at<int>(x, y, current_frame);
+			if(seleceted_traj_id == not_trajectory_index) { // trajectory is not selected
 				return;
 			}
 			
 			const partition_t & partition = callback_input->_partitions[seleceted_traj_id];
 			const trajectory_t & trajectory = callback_input->_trajectories[seleceted_traj_id];
 
-			// Select a colors
+			// Select a color
 			const std::vector<cv::Scalar> & color_scheme = callback_input->_color_scheme;
 			if( callback_input->_num_drawn_trajectories >= color_scheme.size() ) {
 				std::cout << "Not enough colors. Press 'r' to refresh" << std::endl;
@@ -403,11 +378,11 @@ static void show_graphs( int event, int x, int y, int, void * args)
 
 			// Draw projections and partitions of trajectory
 			// xy
-			draw_curve(rounded_x.cbegin(), rounded_x.cend(), rounded_y.cbegin(), rounded_y.cend(), color_for_projections, callback_input->_plot_xy_cords);
-			draw_points(x_partition.cbegin(), x_partition.cend(), y_partition.cbegin(), y_partition.cend(), color_for_partition, callback_input->_plot_xy_cords);
+			draw_curve(rounded_x.cbegin(), rounded_x.cend(), rounded_y.cbegin(), rounded_y.cend(), color_for_projections, callback_input->_plot_xy);
+			draw_points(x_partition.cbegin(), x_partition.cend(), y_partition.cbegin(), y_partition.cend(), color_for_partition, callback_input->_plot_xy);
 
 			// Show them
-			cv::imshow(callback_input->_plot_xy_cords_name, callback_input->_plot_xy_cords);
+			cv::imshow(callback_input->_plot_xy_name, callback_input->_plot_xy);
 
 			// plot speed and accelearation
 			if(trajectory.size() < 5) {
@@ -518,32 +493,25 @@ void draw_points( std::vector<int>::const_iterator x_begin, std::vector<int>::co
 	}
 }
 
-void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<cv::Scalar> & color_scheme, std::vector<cv::Mat> & video, voxel_map_t & pos_2_trajectory)
+void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<cv::Scalar> & color_scheme, std::vector<cv::Mat> & video)
 {
-	int video_length = video.size();
 	int width = video[0].size().width; 
 	int height = video[0].size().height;
 			
-	pos_2_trajectory.resize(width, height, video_length);
-
 	for(unsigned int j=0; j<trajectories.size(); ++j) {
 		for(size_t i=0; i<trajectories[j].size(); ++i) {
+			int floor_x = floor(trajectories[j]._x[i]); 
+			int floor_y = floor(trajectories[j]._y[i]); 
+			int ceil_x = floor_x + 1;
+			int ceil_y = floor_y + 1;
 			int t = trajectories[j]._t[i]; 
 
-			int ix = lroundf(trajectories[j]._x[i]); 
-			int iy = lroundf(trajectories[j]._y[i]); 
 			cv::Point p1, p2; 
-			p1.x = (ix-1<0)? 0: ix-1; 
-			p1.y = (iy-1<0)? 0: iy-1; 
-			p2.x = (ix+1>=width)? width-1: ix+1; 
-			p2.y = (iy+1>=height)? height-1: iy+1; 
+			p1.x = (floor_x-indent<0)? 0: floor_x-indent; 
+			p1.y = (floor_y-indent<0)? 0: floor_y-indent; 
+			p2.x = (ceil_x+indent>=width-1)? width-1: ceil_x+indent;
+			p2.y = (ceil_y+indent>=height-1)? height-1: ceil_y+indent; 
 			cv::rectangle(video[t], p1, p2, color_scheme[i*10], CV_FILLED); 
-
-			for(short y = std::max(p1.y-2, 0); y <= std::min(p2.y+2, height-1); ++y) {
-				for(short x = std::max(p1.x-2, 0); x <= std::min(p2.x+2, width-1); ++x) {
-					pos_2_trajectory(x,y,t) = j;
-				}
-			}
 		}
 	}
 }
