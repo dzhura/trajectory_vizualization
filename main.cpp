@@ -11,11 +11,13 @@
 #include <string>
 
 #include <cstdio> // sprintf
+#include <utility> // pair
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
 #include "filters.hpp"
+#include "trajectory_t.hpp"
 
 extern "C" {
 #include "gnuplot_i.h"
@@ -24,29 +26,6 @@ extern "C" {
 const int not_trajectory_index = -1;
 const int indent = 1; // indent from a point to left, right, top and bottom
 
-struct trajectory_t
-{
-        trajectory_t() { } 
-	trajectory_t(size_t size):
-       		_x(size), _y(size), _t(size) { } 
-
-	void resize(size_t size)
-       	{ 
-		_x.resize(size);
-	       	_y.resize(size);
-	       	_t.resize(size); 
-	} 
-	
-	size_t size() const 
-	{
-		return _t.size();
-	} 
-	
-	std::vector<double> _x, _y; 
-	std::vector<int> _t; 
-}; //trajectory_t
-
-typedef std::vector<unsigned int> partition_t;
 
 // A struct for passing arguments to SetMouseCallback
 class mouse_callback_input_t
@@ -76,6 +55,8 @@ class mouse_callback_input_t
 		for(int i=0; i<2; ++i) {
 			_plot_xt[i] = gnuplot_init();
 			_plot_yt[i] = gnuplot_init();
+			assert(_plot_xt[i] != NULL || !" the input video is too big"); // TODO allow resizing of video
+			assert(_plot_yt[i] != NULL || !" the input video is too big");
 			gnuplot_set_xlabel(_plot_xt[i], (char*)"t");
 			gnuplot_set_ylabel(_plot_xt[i], (char*)"x");
 			gnuplot_set_xlabel(_plot_yt[i], (char*)"t");
@@ -130,13 +111,13 @@ int main(int argc, char * argv[])
 		return 1;
 	}
 
-	//// read input
-	// read frames
 	std::string root_dir = path_to_list_of_frames.substr(0, path_to_list_of_frames.find_last_of("/")+1);
 	if(root_dir.compare(path_to_list_of_frames) == 0) { // if frames are in current folder
 		root_dir = "./";
 	}
 
+	//// read input
+	// read frames
 	std::ifstream in_frames(path_to_list_of_frames);
 	if( !in_frames.is_open() ) {
 		std::cout << "Cannot " << path_to_list_of_frames << std::endl;
@@ -158,7 +139,7 @@ int main(int argc, char * argv[])
 			return 1;
 		}
 		if(frames[i].size() != frames[0].size()) {
-			std::cout << "Size of " << i+1 << "-th frame differ from sizes of previous frames" << std::endl;
+			std::cout << "Size of " << i+1 << "-th frame differs from sizes of previous frames" << std::endl;
 			return 1;
 		}
 	}
@@ -173,24 +154,15 @@ int main(int argc, char * argv[])
 
 	int trajectories_video_length;
 	int trajectory_amount;
-	in_trajectoires >> trajectories_video_length >> trajectory_amount;
+	read_dat_header(trajectories_video_length, trajectory_amount, in_trajectoires);
 	if(trajectories_video_length != video_length) {
 		std::cout << "Trajectories are extracted from a video of another length" << std::endl;
 		return 1;
 	}
 
 	std::vector<trajectory_t> trajectories(trajectory_amount);
-	for(size_t i=0; i<trajectories.size(); ++i) {
-		int label;
-		unsigned int trajectory_size;
-		in_trajectoires >> label >> trajectory_size;
-
-		trajectories[i].resize(trajectory_size);
-		for(size_t j=0; j < trajectories[i].size(); ++j) {
-			in_trajectoires >> trajectories[i]._x[j] >> trajectories[i]._y[j] >> trajectories[i]._t[j];
-			trajectories[i]._x[j] = lroundf(trajectories[i]._x[j]);
-			trajectories[i]._y[j] = lroundf(trajectories[i]._y[j]);
-		}
+	for(trajectory_t & trajectory : trajectories) {
+		read(trajectory, in_trajectoires);
 	}
 	in_trajectoires.close();
 
@@ -203,7 +175,7 @@ int main(int argc, char * argv[])
 
 	int partitions_video_length;
 	int partitions_trajectory_amount;
-	in_partition >> partitions_video_length >> partitions_trajectory_amount;
+	read_dat_header(partitions_video_length, partitions_trajectory_amount, in_partition);
 	if(partitions_video_length != video_length) {
 		std::cout << "Partitions were extracted from a video of another length" << std::endl;
 		return 1;
@@ -214,14 +186,8 @@ int main(int argc, char * argv[])
 	}
 
 	std::vector<partition_t> partitions(trajectory_amount);
-	for(size_t i=0; i<partitions.size(); ++i) {
-		unsigned int partition_amount;
-		in_partition >> partition_amount;
-
-		partitions[i].resize(partition_amount);
-		for(size_t j=0; j < partitions[i].size(); ++j) {
-			in_partition >> partitions[i][j];
-		}
+	for(partition_t & partition : partitions) {
+		read(partition, in_partition);
 	}
 	in_partition.close();
 
@@ -245,12 +211,14 @@ int main(int argc, char * argv[])
 
 	// create a map: position of a trajectory element to the trajectory index
 	int video_size[] = {frames[0].size().width, frames[0].size().height, video_length}; // sizes of all frames are the same
-	cv::Mat pos_2_trajectory_id(3, video_size, CV_32SC1, not_trajectory_index);
-	for(size_t i = 0; i < trajectories.size(); ++i) {
-		for( size_t point_id=0; point_id < trajectories[i].size(); ++point_id) {
+	cv::Mat pos_2_trajectory_id(3/*amount of dims*/, video_size, CV_32SC1, not_trajectory_index);
+	int trajectory_id=0;
+	for(const trajectory_t & trajectory : trajectories) {
+		int frame_id = trajectory._start_frame;
+		for( const trajectory_t::point_t & point : trajectory._points ) {
 
-			int floor_x = floor(trajectories[i]._x[point_id]); 
-			int floor_y = floor(trajectories[i]._y[point_id]); 
+			int floor_x = floor(point.x); 
+			int floor_y = floor(point.y); 
 			int ceil_x = floor_x + 1;
 			int ceil_y = floor_y + 1;
 
@@ -260,12 +228,13 @@ int main(int argc, char * argv[])
 			p2.x = (ceil_x+indent>=frames[0].size().width-1)? frames[0].size().width-1: ceil_x+indent;
 			p2.y = (ceil_y+indent>=frames[0].size().height-1)? frames[0].size().height-1: ceil_y+indent; 
 
-			int t = trajectories[i]._t[point_id];
 			for(int y=p1.y; y<=p2.y; ++y)
 			for(int x=p1.x; x<=p2.x; ++x) {
-				pos_2_trajectory_id.at<int>(x, y, t) = i;
+				pos_2_trajectory_id.at<int>(x, y, frame_id) = trajectory_id;
 			}
+			frame_id++;
 		}
+		trajectory_id++;
 	}
 
 	// prepare mouse call handler
@@ -321,7 +290,6 @@ int main(int argc, char * argv[])
 				mouse_callback_input._num_drawn_trajectories = 0;
 				mouse_callback_input._plot_xy = background_color;
 				cv::imshow(mouse_callback_input._plot_xy_name, mouse_callback_input._plot_xy);
-				//cv::moveWindow(mouse_callback_input._plot_xy_name, frames[0].size().width, 0);
 				for(int i=0; i<2; ++i) {
 					gnuplot_resetplot(mouse_callback_input._plot_xt[i]);
 					gnuplot_resetplot(mouse_callback_input._plot_yt[i]);
@@ -348,32 +316,37 @@ static void show_graphs( int event, int x, int y, int, void * args)
 			if(seleceted_traj_id == not_trajectory_index) { // trajectory is not selected
 				return;
 			}
-			
-			const partition_t & partition = callback_input->_partitions[seleceted_traj_id];
-			const trajectory_t & trajectory = callback_input->_trajectories[seleceted_traj_id];
-
-			// Select a color
-			const std::vector<cv::Scalar> & color_scheme = callback_input->_color_scheme;
-			if( callback_input->_num_drawn_trajectories >= color_scheme.size() ) {
+			if( callback_input->_num_drawn_trajectories >= callback_input->_color_scheme.size() ) {
 				std::cout << "Not enough colors. Press 'r' to refresh" << std::endl;
 				break;
 			}
+			
+			const trajectory_t & trajectory = callback_input->_trajectories[seleceted_traj_id];
+			const partition_t & partition = callback_input->_partitions[seleceted_traj_id];
 
-			cv::Scalar color_for_projections = color_scheme[callback_input->_num_drawn_trajectories];
+			// Select a color
+			cv::Scalar color_for_projections = callback_input->_color_scheme[callback_input->_num_drawn_trajectories];
 			cv::Scalar color_for_partition = cv::Scalar(0,0,255);
 
-			// round trajectory
+			std::vector<trajectory_t::component_t> x, y;
+			trajectory.get_x_components(x);
+			trajectory.get_y_components(y);
+
+			// round trajectories for drawing
 			std::vector<int> rounded_x(trajectory.size()), rounded_y(trajectory.size());
 			for(size_t i=0; i<trajectory.size(); ++i) {
-				rounded_x[i] = lroundf(trajectory._x[i]);
-				rounded_y[i] = lroundf(trajectory._y[i]);
+				rounded_x[i] = lround(x[i]);
+				rounded_y[i] = lround(y[i]);
 			}
 
 			// get trajectory partition points
-			std::vector<int> x_partition(partition.size()), y_partition(partition.size());
-			for(unsigned int i=0; i<partition.size(); ++i) {
-				x_partition[i] = rounded_x[partition[i]];
-				y_partition[i] = rounded_y[partition[i]];
+			std::vector<int> x_partition(partition.size());
+			std::vector<int> y_partition(partition.size());
+			int i=0;
+			for(const partition_t::value_type & p : partition) {
+				x_partition[i] = rounded_x[p];
+				y_partition[i] = rounded_y[p];
+				i++;
 			}
 
 			// Draw projections and partitions of trajectory
@@ -385,28 +358,25 @@ static void show_graphs( int event, int x, int y, int, void * args)
 			cv::imshow(callback_input->_plot_xy_name, callback_input->_plot_xy);
 
 			// plot speed and accelearation
-			if(trajectory.size() < 5) {
+			const int template_size=3;
+			if(trajectory.size() < template_size) {
 				break; // trajectory is too short
 			}
 
 			// compute speed and acceleration
-			std::vector<double> gaussian, derivative;
-			gaussian_template(3, 3.0, gaussian);
-			derivative_template(3, derivative);
+			std::vector<trajectory_t::component_t> gaussian, derivative;
+			gaussian_template(template_size, 3.0/*sigma*/, gaussian);
+			derivative_template(template_size, derivative);
 
-			std::vector<double> smooth_x, smooth_y;
-			convolve(trajectory._x, gaussian, smooth_x);
-			smooth_x.front() = trajectory._x.front();
-			smooth_x.back() = trajectory._x.back();
-			convolve(trajectory._y, gaussian, smooth_y);
-			smooth_y.front() = trajectory._y.front();
-			smooth_y.back() = trajectory._y.back();
+			std::vector<trajectory_t::component_t> smooth_x, smooth_y;
+			convolve(x, gaussian, smooth_x);
+			convolve(y, gaussian, smooth_y);
 
-			std::vector<double> x_speed, y_speed;
+			std::vector<trajectory_t::component_t> x_speed, y_speed;
 			convolve(smooth_x, derivative, x_speed);
 			convolve(smooth_y, derivative, y_speed);
 
-			std::vector<double> x_acceleration, y_acceleration;
+			std::vector<trajectory_t::component_t> x_acceleration, y_acceleration;
 			convolve(x_speed, derivative, x_acceleration);
 			convolve(y_speed, derivative, y_acceleration);
 
@@ -426,28 +396,37 @@ static void show_graphs( int event, int x, int y, int, void * args)
 
 			// Plot projections, speed and acceleration
 			// xt
-			gnuplot_plot_x(callback_input->_plot_xt[0], &trajectory._x[0], trajectory.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_xt[0], &x[0], trajectory.size(), trajectory_title);
 			gnuplot_plot_x(callback_input->_plot_xt[0], &smooth_x[0], smooth_x.size(), (char*)"smooth");
 
 			gnuplot_plot_x(callback_input->_plot_xt[1], &x_speed[0], x_speed.size(), speed_title);
 			gnuplot_plot_x(callback_input->_plot_xt[1], &x_acceleration[0], x_acceleration.size(), acceleration_title);
 			// yt
-			gnuplot_plot_x(callback_input->_plot_yt[0], &trajectory._y[0], trajectory.size(), trajectory_title);
+			gnuplot_plot_x(callback_input->_plot_yt[0], &y[0], trajectory.size(), trajectory_title);
 			gnuplot_plot_x(callback_input->_plot_yt[0], &smooth_y[0], smooth_y.size(), (char*)"smooth");
 
 			gnuplot_plot_x(callback_input->_plot_yt[1], &y_speed[0], y_speed.size(), speed_title);
 			gnuplot_plot_x(callback_input->_plot_yt[1], &y_acceleration[0], y_acceleration.size(), acceleration_title);
 
 			// get partitions
-			std::vector<double> 	x_speed_partition(partition.size()), y_speed_partition(partition.size()),
-						x_acceleration_partition(partition.size()), y_acceleration_partition(partition.size()),
-						t_partition(partition.begin(), partition.end());
-			for(unsigned int i=0; i<partition.size(); ++i) {
-				x_speed_partition[i] = x_speed[partition[i]];
-				y_speed_partition[i] = y_speed[partition[i]];
-				x_acceleration_partition[i] = x_acceleration[partition[i]];
-				y_acceleration_partition[i] = y_acceleration[partition[i]];
+			std::vector<trajectory_t::component_t> x_speed_partition(partition.size());
+			std::vector<trajectory_t::component_t> y_speed_partition(partition.size());
+			i=0;
+			for(const partition_t::value_type & p : partition) {
+				x_speed_partition[i] = x_speed[p];
+				y_speed_partition[i] = y_speed[p];
+				i++;
 			}
+			std::vector<trajectory_t::component_t> x_acceleration_partition(partition.size());
+			std::vector<trajectory_t::component_t> y_acceleration_partition(partition.size());
+			i=0;
+			for(const partition_t::value_type & p : partition) {
+				x_acceleration_partition[i] = x_acceleration[p];
+				y_acceleration_partition[i] = y_acceleration[p];
+				i++;
+			}
+			// gnu plot requires the same type for both variables
+			std::vector<trajectory_t::component_t> t_partition(partition.begin(), partition.end());
 
 			// perepare to plot
 			for(int i=0; i<2; ++i) {
@@ -498,20 +477,24 @@ void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std
 	int width = video[0].size().width; 
 	int height = video[0].size().height;
 			
-	for(unsigned int j=0; j<trajectories.size(); ++j) {
-		for(size_t i=0; i<trajectories[j].size(); ++i) {
-			int floor_x = floor(trajectories[j]._x[i]); 
-			int floor_y = floor(trajectories[j]._y[i]); 
+	for(const trajectory_t & trajectory : trajectories ) {
+		int frame_id = trajectory._start_frame;
+		int i=0;
+		for(const trajectory_t::point_t & point : trajectory._points ) {
+			int floor_x = floor(point.x); 
+			int floor_y = floor(point.y); 
 			int ceil_x = floor_x + 1;
 			int ceil_y = floor_y + 1;
-			int t = trajectories[j]._t[i]; 
 
 			cv::Point p1, p2; 
 			p1.x = (floor_x-indent<0)? 0: floor_x-indent; 
 			p1.y = (floor_y-indent<0)? 0: floor_y-indent; 
 			p2.x = (ceil_x+indent>=width-1)? width-1: ceil_x+indent;
 			p2.y = (ceil_y+indent>=height-1)? height-1: ceil_y+indent; 
-			cv::rectangle(video[t], p1, p2, color_scheme[i*10], CV_FILLED); 
+
+			cv::rectangle(video[frame_id], p1, p2, color_scheme[i*10], CV_FILLED); 
+			frame_id++;
+			i++;
 		}
 	}
 }

@@ -9,14 +9,15 @@ LDFLAGS= `pkg-config --libs opencv`
 
 EXECUTABLE= trajectory_vizualization
 
-SOURCES= filters.cpp gnuplot_i.c main.cpp
+SOURCES= trajectory_t.cpp filters.cpp gnuplot_i.c main.cpp
 OBJECTS= $(addsuffix .o,$(basename $(SOURCES)))
 
 #all: $(SOURCES) $(EXECUTABLE)
 $(EXECUTABLE): $(OBJECTS)
 	$(CXX) $(LDFLAGS) $(OBJECTS) -o $@
 
-main.o: filters.hpp gnuplot_i.h
+main.o: trajectory_t.hpp filters.hpp gnuplot_i.h
+trajectory_t.o: trajectory_t.hpp
 filters.o: filters.hpp
 gnuplot_i.o: gnuplot_i.h
 
