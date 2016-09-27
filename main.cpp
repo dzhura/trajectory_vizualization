@@ -185,6 +185,7 @@ int main(int argc, char * argv[])
 		return 1;
 	}
 
+
 	std::vector<partition_t> partitions(trajectory_amount);
 	for(partition_t & partition : partitions) {
 		read(partition, in_partition);
@@ -209,7 +210,7 @@ int main(int argc, char * argv[])
 	}
 	draw_trajectories(trajectories, color_scheme, frames);
 
-	// create a map: position of a trajectory element to the trajectory index
+	// create a map: position of a point of a trajectory to the trajectory index
 	int video_size[] = {frames[0].size().width, frames[0].size().height, video_length}; // sizes of all frames are the same
 	cv::Mat pos_2_trajectory_id(3/*amount of dims*/, video_size, CV_32SC1, not_trajectory_index);
 	int trajectory_id=0;
@@ -371,14 +372,26 @@ static void show_graphs( int event, int x, int y, int, void * args)
 			std::vector<trajectory_t::component_t> smooth_x, smooth_y;
 			convolve(x, gaussian, smooth_x);
 			convolve(y, gaussian, smooth_y);
+			smooth_x[0] = smooth_x[1];
+			smooth_x[smooth_x.size()-1] = smooth_x[smooth_x.size()-2];
+			smooth_y[0] = smooth_y[1];
+			smooth_y[smooth_y.size()-1] = smooth_y[smooth_y.size()-2];
 
 			std::vector<trajectory_t::component_t> x_speed, y_speed;
 			convolve(smooth_x, derivative, x_speed);
 			convolve(smooth_y, derivative, y_speed);
+			x_speed[0] = x_speed[1];
+			x_speed[x_speed.size()-1] = x_speed[x_speed.size()-2];
+			y_speed[0] = y_speed[1];
+			y_speed[y_speed.size()-1] = y_speed[y_speed.size()-2];
 
 			std::vector<trajectory_t::component_t> x_acceleration, y_acceleration;
 			convolve(x_speed, derivative, x_acceleration);
 			convolve(y_speed, derivative, y_acceleration);
+			x_acceleration[0] = x_acceleration[1];
+			x_acceleration[x_acceleration.size()-1] = x_acceleration[x_acceleration.size()-2];
+			y_acceleration[0] = y_acceleration[1];
+			y_acceleration[y_acceleration.size()-1] = y_acceleration[y_acceleration.size()-2];
 
 			// Prepare to plot
 			for(int i=0; i<2; ++i) {
@@ -476,7 +489,7 @@ void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std
 {
 	int width = video[0].size().width; 
 	int height = video[0].size().height;
-			
+
 	for(const trajectory_t & trajectory : trajectories ) {
 		int frame_id = trajectory._start_frame;
 		int i=0;
