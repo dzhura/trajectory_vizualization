@@ -82,10 +82,14 @@ void read(trajectory_t & tr, std::ifstream & in)
 	size_t size;
 	in >> size;
 
-	int x, y, frame;
-	in >> x >> y >> frame;
-	tr.recreate(size, frame);
-	tr[0].x = x; tr[0].y = y;
+	tr._points.resize(size);
+
+	trajectory_t::point_t p;
+	int frame;
+	in >> p.x >> p.y >> frame;
+
+	tr._points[0] = p;
+	tr._start_frame = frame;
 
 	for(trajectory_t::iterator it=1+tr.begin(); it!=tr.end(); ++it) {
 		in >> it->x >> it->y >> frame;
@@ -99,7 +103,7 @@ void write(const trajectory_t & tr, std::ofstream & out)
 	out << (int)0/*label*/ << ' ' << tr.size() << std::endl;
 
 	unsigned int frame = tr._start_frame;
-	out << lroundf(tr[0].x) << ' ' << lroundf(tr[0].y) << frame++ << std::endl;
+	out << lroundf(tr[0].x) << ' ' << lroundf(tr[0].y) << ' ' << frame++ << std::endl;
 	for(trajectory_t::const_iterator it=1+tr.begin(); it!=tr.end(); ++it) {
 		out << it->x << ' ' << it->y << ' ' << frame++ << std::endl;
 	}
