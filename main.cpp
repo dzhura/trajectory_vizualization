@@ -15,6 +15,7 @@
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 
 #include "filters.hpp"
 #include "trajectory_t.hpp"
@@ -25,7 +26,6 @@ extern "C" {
 
 const int not_trajectory_index = -1;
 const int indent = 1; // indent from a point to left, right, top and bottom
-
 
 // A struct for passing arguments to SetMouseCallback
 class mouse_callback_input_t
@@ -81,8 +81,11 @@ void draw_curve( std::vector<int>::const_iterator x_begin, std::vector<int>::con
 void draw_points( std::vector<int>::const_iterator x_begin, std::vector<int>::const_iterator x_end,
 		std::vector<int>::const_iterator y_begin, std::vector<int>::const_iterator y_end, const cv::Scalar & color, cv::Mat & out);
 
-// FIXME what to do if color_scheme has less colors than required?
+//// Functions for drawing trajectories in a video sequence with specific color
+// Color correspond to age of trajectory. FIXME what to do if color_scheme has less colors than required?
 void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<cv::Scalar> & color_scheme, std::vector<cv::Mat> & video);
+// Color correspond to partition of trajectory, color of a partition of trajectory differs form colors of neightbour partitions from the same trajectory
+void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<partition_t> & partitions, std::vector<cv::Mat> & video);
 
 int main(int argc, char * argv[]) 
 {
@@ -186,6 +189,7 @@ int main(int argc, char * argv[])
 	}
 
 
+	// Note: it is supposed trajectory and its partition have the same index
 	std::vector<partition_t> partitions(trajectory_amount);
 	for(partition_t & partition : partitions) {
 		read(partition, in_partition);
@@ -193,24 +197,9 @@ int main(int argc, char * argv[])
 	in_partition.close();
 
 	//// prepare for vizualization
-	// generate a color scheme for drawing of trajectories
-	// color scheme idea was taken from T. Brox dense trajectories
-	std::vector<cv::Scalar> color_scheme(1024);
-	for(int i=0; i<256; ++i) {
-		color_scheme[i] = cv::Scalar(255, i, 0);
-	}
-	for(int i=0; i<256; ++i) {
-		color_scheme[256+i] = cv::Scalar(255-i, 255, 0);
-	}
-	for(int i=0; i<256; ++i) {
-		color_scheme[512+i] = cv::Scalar(0, 255, i);
-	}
-	for(int i=0; i<256; ++i) {
-		color_scheme[768+i] = cv::Scalar(255, 255, 255);
-	}
-	draw_trajectories(trajectories, color_scheme, frames);
+	draw_trajectories(trajectories, partitions, frames);
 
-	// create a map: position of a point of a trajectory to the trajectory index
+	// create a map: a trajectory point to the index of the trajectory
 	int video_size[] = {frames[0].size().width, frames[0].size().height, video_length}; // sizes of all frames are the same
 	cv::Mat pos_2_trajectory_id(3/*amount of dims*/, video_size, CV_32SC1, not_trajectory_index);
 	int trajectory_id=0;
@@ -218,6 +207,7 @@ int main(int argc, char * argv[])
 		int frame_id = trajectory._start_frame;
 		for( const trajectory_t::point_t & point : trajectory._points ) {
 
+			// TODO the same piece of code is in draw_trajectories. Make a separate function
 			int floor_x = floor(point.x); 
 			int floor_y = floor(point.y); 
 			int ceil_x = floor_x + 1;
@@ -242,20 +232,20 @@ int main(int argc, char * argv[])
 	cv::Scalar background_color(0,0,0);
 	int current_frame_number = 0;
 
-	std::vector<cv::Scalar> max_colors(11);
-	max_colors[0] = cv::Scalar(255, 0, 0, 1);
-	max_colors[1] = cv::Scalar(0, 255, 0);
-	max_colors[2] = cv::Scalar(255, 255, 0);
-	max_colors[3] = cv::Scalar(255, 0, 255);
-	max_colors[4] = cv::Scalar(0, 255, 255);
-	max_colors[5] = cv::Scalar(255, 255, 255);
-	max_colors[6] = cv::Scalar(0, 125, 0);
-	max_colors[7] = cv::Scalar(125, 125, 0);
-	max_colors[8] = cv::Scalar(125, 0, 125);
-	max_colors[9] = cv::Scalar(0, 125, 125);
-	max_colors[10] = cv::Scalar(125, 125, 125);
+	std::vector<cv::Scalar> colors(11);
+	colors[0] = cv::Scalar(255, 0, 0, 1);
+	colors[1] = cv::Scalar(0, 255, 0);
+	colors[2] = cv::Scalar(255, 255, 0);
+	colors[3] = cv::Scalar(255, 0, 255);
+	colors[4] = cv::Scalar(0, 255, 255);
+	colors[5] = cv::Scalar(255, 255, 255);
+	colors[6] = cv::Scalar(0, 125, 0);
+	colors[7] = cv::Scalar(125, 125, 0);
+	colors[8] = cv::Scalar(125, 0, 125);
+	colors[9] = cv::Scalar(0, 125, 125);
+	colors[10] = cv::Scalar(125, 125, 125);
 
-	mouse_callback_input_t mouse_callback_input(current_frame_number, pos_2_trajectory_id, trajectories, partitions, max_colors);
+	mouse_callback_input_t mouse_callback_input(current_frame_number, pos_2_trajectory_id, trajectories, partitions, colors);
 	mouse_callback_input._plot_xy = cv::Mat(frames[0].size(), CV_8UC3, background_color);
 	mouse_callback_input._plot_xy_name = std::string("xy projection"); 
 
@@ -509,5 +499,53 @@ void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std
 			frame_id++;
 			i++;
 		}
+	}
+}
+void draw_trajectories(const std::vector<trajectory_t> & trajectories, const std::vector<partition_t> & partitions, std::vector<cv::Mat> & video)
+{
+	assert(trajectories.size() == partitions.size());
+
+	int width = video[0].size().width;
+	int height = video[0].size().height;
+	// Convert video to HSV
+	for(cv::Mat & frame : video) {
+		cv::cvtColor(frame, frame, CV_BGR2HSV);
+	}
+
+	const int hue_step_deg = 30;
+	const int saturation = 255;
+	const int value = 255;
+
+	for( size_t i=0; i<trajectories.size(); ++i ) {
+
+		const trajectory_t & trajectory = trajectories[i];
+		partition_t::const_iterator p_cut_point = partitions[i].begin();
+		int frame_id = trajectory._start_frame;
+		int hue = 0;
+		cv::Scalar color(hue, 0/*saturation*/, 0/*value*/); // distinguish newly initilalized trajectory by a  unqiue color
+		for( size_t j=0; j<trajectory.size(); ++j ) {
+			
+			int floor_x = floor(trajectory[j].x); 
+			int floor_y = floor(trajectory[j].y); 
+			int ceil_x = floor_x + 1;
+			int ceil_y = floor_y + 1;
+			
+			cv::Point p1, p2; 
+			p1.x = (floor_x-indent<0)? 0: floor_x-indent; 
+			p1.y = (floor_y-indent<0)? 0: floor_y-indent; 
+			p2.x = (ceil_x+indent>=width-1)? width-1: ceil_x+indent;
+			p2.y = (ceil_y+indent>=height-1)? height-1: ceil_y+indent; 
+
+			cv::rectangle(video[frame_id++], p1, p2, color, CV_FILLED); 
+			if( j == *p_cut_point ) {
+				hue= (hue+hue_step_deg)%360;
+				color = cv::Scalar(hue, saturation, value);
+				p_cut_point++;
+			}
+		}
+	}
+	// Convert video back to BGR
+	for(cv::Mat & frame : video) {
+		cv::cvtColor(frame, frame, CV_HSV2BGR);
 	}
 }
