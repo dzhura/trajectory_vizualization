@@ -286,6 +286,23 @@ int main(int argc, char * argv[])
 					gnuplot_resetplot(mouse_callback_input._plot_yt[i]);
 				}
 				break;
+
+			case 'p':
+				c = cv::waitKey(0);
+				switch( (char)c ) {
+					case 'p': // print plot
+						cv::imwrite(root_dir + "plot_xy.jpg", mouse_callback_input._plot_xy);
+						break;
+					case 't': // print trajectories
+						int id=0;
+						for(const cv::Mat & frame : frames) {
+							std::string str_id = std::to_string(id++);
+							str_id = std::string(4 - str_id.length(), '0') + str_id;
+							cv::imwrite(root_dir + "Trajectories" + str_id + ".jpg", frame);
+						}
+						break;
+				}
+				break;
 		}
 	}
 	return 0;

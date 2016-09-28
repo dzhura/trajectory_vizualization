@@ -1,6 +1,8 @@
 Vizualization of xy, tx and ty projection of a trajectory. A trajectory is selected by clicing on the corresponding color dot in frame.
 Frames can be traversed forward and bacward by pressing 'f' and 'b' buttoms respectively. The projections are shown in separate windows.
 Press 'r' to remove all windows exept of the main window.
+Press "pp" to write the selected xy projections. xy_projections are saved in a single images "xy_plot" in <path_to_trajectories> folder
+Press "pt" to write frames with corresponding trajectoies. The frames are saved as "Trajectories%04d.jpg" in <path_to_trajectories> folder
 
 Requirements: OpenCV 2.4, g++ with C++11 support, GNU make, pkg-config and gnuplot
 
